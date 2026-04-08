@@ -1,32 +1,49 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Star } from '@mui/icons-material';
-
-interface Offer {
-  id: number;
-  rank: number;
-  name: string;
-  bookings: number;
-  rating: number;
-  revenue: string;
-}
-
-const topOffers: Offer[] = [
-  { id: 1, rank: 1, name: 'Paris Adventure', bookings: 145, rating: 4.8, revenue: '$174,000' },
-  { id: 2, rank: 2, name: 'Dubai Luxury Tour', bookings: 132, rating: 4.9, revenue: '$323,400' },
-  { id: 3, rank: 3, name: 'Tokyo Explorer', bookings: 118, rating: 4.7, revenue: '$201,060' },
-  { id: 4, rank: 4, name: 'London Experience', bookings: 98, rating: 4.6, revenue: '$185,220' },
-  { id: 5, rank: 5, name: 'Istanbul Discovery', bookings: 87, rating: 4.5, revenue: '$134,850' },
-];
-
-const rankGradients = [
-  'from-yellow-400 to-orange-500',
-  'from-gray-400 to-gray-600',
-  'from-orange-400 to-orange-700',
-  'from-blue-400 to-blue-600',
-  'from-purple-400 to-purple-600',
-];
+import { offerService } from '../services/offerService';
 
 export function TopOffers() {
+  const [topOffers, setTopOffers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTopOffers = async () => {
+      try {
+        setIsLoading(true);
+        const data = await offerService.getAllOffers();
+        const offersArray = Array.isArray(data) ? data : (data?.offers || []);
+        
+        // Sort by bookings (places) descending and take top 5
+        const sorted = [...offersArray]
+          .sort((a: any, b: any) => (b.bookings || b.places || 0) - (a.bookings || a.places || 0))
+          .slice(0, 5)
+          .map((offer: any, index: number) => ({
+            id: offer.id || offer._id,
+            rank: index + 1,
+            name: offer.title || offer.name || 'Untitled Offer',
+            bookings: offer.bookings || offer.places || 0,
+            rating: offer.rating || 5.0,
+            revenue: offer.total_price !== undefined ? `${(offer.total_price * (offer.bookings || offer.places || 0)).toLocaleString()} DZD` : '0 DZD',
+          }));
+        
+        setTopOffers(sorted);
+      } catch (err) {
+        console.error('Failed to fetch top offers:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchTopOffers();
+  }, []);
+
+  const rankGradients = [
+    'from-yellow-400 to-orange-500',
+    'from-gray-400 to-gray-600',
+    'from-orange-400 to-orange-700',
+    'from-blue-400 to-blue-600',
+    'from-purple-400 to-purple-600',
+  ];
   return (
     <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-6 shadow-lg">
       {/* Header */}

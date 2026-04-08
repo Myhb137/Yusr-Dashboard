@@ -24,19 +24,19 @@ export function Settings() {
 
   // Profile State
   const [profileData, setProfileData] = useState({
-    name: 'Ahmed Al-Mansoori',
-    email: 'ahmed@yusrtravel.com',
-    phone: '+971 50 123 4567',
+    name: '',
+    email: '',
+    phone: '',
     language: 'en',
   });
 
   // Agency State
   const [agencyData, setAgencyData] = useState({
-    name: 'Yusr Travel Agency',
-    license: 'YTA-2024-001',
-    address: 'Dubai Marina, Dubai, UAE',
-    website: 'www.yusrtravel.com',
-    description: 'Premium travel experiences across the Middle East and beyond',
+    name: '',
+    license: '',
+    address: '',
+    website: '',
+    description: '',
   });
 
   // Notification State
@@ -90,7 +90,7 @@ export function Settings() {
       {/* Profile Picture */}
       <div className="flex items-center gap-6 p-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
         <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
-          {profileData.name.charAt(0)}
+          {profileData.name.charAt(0) || 'U'}
         </div>
         <div className="flex-1">
           <h3 className="text-xl font-bold text-gray-900">{profileData.name}</h3>

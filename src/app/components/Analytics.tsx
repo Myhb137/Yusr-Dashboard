@@ -25,78 +25,72 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-const revenueData = [
-  { month: 'Jan', revenue: 28000, bookings: 45 },
-  { month: 'Feb', revenue: 32000, bookings: 52 },
-  { month: 'Mar', revenue: 35000, bookings: 58 },
-  { month: 'Apr', revenue: 42000, bookings: 68 },
-  { month: 'May', revenue: 48000, bookings: 75 },
-  { month: 'Jun', revenue: 55000, bookings: 88 },
-  { month: 'Jul', revenue: 62000, bookings: 98 },
-  { month: 'Aug', revenue: 58000, bookings: 92 },
-  { month: 'Sep', revenue: 65000, bookings: 102 },
-  { month: 'Oct', revenue: 70000, bookings: 110 },
-  { month: 'Nov', revenue: 75000, bookings: 118 },
-  { month: 'Dec', revenue: 82000, bookings: 128 },
-];
-
-const categoryData = [
-  { name: 'City Tour', value: 35, color: '#0046A8' },
-  { name: 'Beach', value: 25, color: '#06B6D4' },
-  { name: 'Adventure', value: 20, color: '#8B5CF6' },
-  { name: 'Luxury', value: 12, color: '#F59E0B' },
-  { name: 'Cultural', value: 8, color: '#EC4899' },
-];
-
-const topDestinationsData = [
-  { destination: 'Paris', bookings: 145 },
-  { destination: 'Dubai', bookings: 132 },
-  { destination: 'Tokyo', bookings: 118 },
-  { destination: 'London', bookings: 98 },
-  { destination: 'Santorini', bookings: 103 },
-  { destination: 'Maldives', bookings: 78 },
-];
-
-const performanceMetrics = [
-  {
-    id: 1,
-    title: 'Total Revenue',
-    value: '$652,000',
-    change: '+24.5%',
-    trend: 'up',
-    icon: AttachMoney,
-    gradient: 'from-emerald-500 to-teal-600',
-  },
-  {
-    id: 2,
-    title: 'Total Bookings',
-    value: '1,034',
-    change: '+18.2%',
-    trend: 'up',
-    icon: People,
-    gradient: 'from-blue-600 to-indigo-600',
-  },
-  {
-    id: 3,
-    title: 'Active Offers',
-    value: '24',
-    change: '+3',
-    trend: 'up',
-    icon: Inventory2,
-    gradient: 'from-purple-500 to-pink-600',
-  },
-  {
-    id: 4,
-    title: 'Avg Booking Value',
-    value: '$631',
-    change: '+5.4%',
-    trend: 'up',
-    icon: TrendingUp,
-    gradient: 'from-orange-400 to-red-500',
-  },
-];
+import { useState, useEffect } from 'react';
+import { adminService } from '../services/adminService';
 
 export function Analytics() {
+  const [stats, setStats] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      try {
+        setIsLoading(true);
+        const data = await adminService.getStats();
+        setStats(data);
+      } catch (err) {
+        console.error('Failed to fetch analytics:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchAnalytics();
+  }, []);
+
+  const revenueData = stats?.revenueDistribution || [];
+
+  const categoryData = stats?.categoryDistribution || [];
+
+  const topDestinationsData = stats?.topDestinations || [];
+
+  const performanceMetrics = [
+    {
+      id: 1,
+      title: 'Total Revenue',
+      value: stats?.totalRevenue !== undefined ? `${stats.totalRevenue.toLocaleString()} DZD` : '0 DZD',
+      change: stats?.revenueChange || '0%',
+      trend: (stats?.revenueChange || '').startsWith('-') ? 'down' : 'up',
+      icon: AttachMoney,
+      gradient: 'from-emerald-500 to-teal-600',
+    },
+    {
+      id: 2,
+      title: 'Total Bookings',
+      value: stats?.totalBookings?.toLocaleString() || '0',
+      change: stats?.bookingsChange || '0%',
+      trend: (stats?.bookingsChange || '').startsWith('-') ? 'down' : 'up',
+      icon: People,
+      gradient: 'from-blue-600 to-indigo-600',
+    },
+    {
+      id: 3,
+      title: 'Active Offers',
+      value: stats?.activeOffers?.toString() || '0',
+      change: stats?.offersChange || '0',
+      trend: (stats?.offersChange || '').startsWith('-') ? 'down' : 'up',
+      icon: Inventory2,
+      gradient: 'from-purple-500 to-pink-600',
+    },
+    {
+      id: 4,
+      title: 'Avg Booking Value',
+      value: stats?.avgBookingValue !== undefined ? `${stats.avgBookingValue.toLocaleString()} DZD` : '0 DZD',
+      change: stats?.avgValueChange || '0%',
+      trend: (stats?.avgValueChange || '').startsWith('-') ? 'down' : 'up',
+      icon: TrendingUp,
+      gradient: 'from-orange-400 to-red-500',
+    },
+  ];
   return (
     <div>
       {/* Performance Metrics */}
@@ -180,7 +174,7 @@ export function Analytics() {
               strokeWidth={3}
               fillOpacity={1}
               fill="url(#colorRevenue)"
-              name="Revenue ($)"
+              name="Revenue (DZD)"
             />
             <Area
               type="monotone"
@@ -218,7 +212,7 @@ export function Analytics() {
                 fill="#8884d8"
                 dataKey="value"
               >
-                {categoryData.map((entry, index) => (
+                {categoryData.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
@@ -278,7 +272,7 @@ export function Analytics() {
               }}
             />
             <Legend />
-            <Bar dataKey="revenue" fill="url(#barGradient)" radius={[8, 8, 0, 0]} name="Revenue ($)" />
+            <Bar dataKey="revenue" fill="url(#barGradient)" radius={[8, 8, 0, 0]} name="Revenue (DZD)" />
             <defs>
               <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#0046A8" />

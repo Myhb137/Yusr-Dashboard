@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, Pending, Cancel, MoreVert } from '@mui/icons-material';
+import { bookingService } from '../services/bookingService';
 
 interface Booking {
   id: number;
@@ -10,63 +12,6 @@ interface Booking {
   status: 'confirmed' | 'pending' | 'cancelled';
   avatar: string;
 }
-
-const bookings: Booking[] = [
-  {
-    id: 1,
-    customer: 'Ahmed Hassan',
-    offer: 'Paris Adventure',
-    date: 'Feb 15, 2026',
-    amount: '$1,200',
-    status: 'confirmed',
-    avatar: 'AH',
-  },
-  {
-    id: 2,
-    customer: 'Fatima Ali',
-    offer: 'Dubai Luxury Tour',
-    date: 'Feb 14, 2026',
-    amount: '$2,450',
-    status: 'confirmed',
-    avatar: 'FA',
-  },
-  {
-    id: 3,
-    customer: 'Omar Ibrahim',
-    offer: 'Cairo Historical',
-    date: 'Feb 13, 2026',
-    amount: '$890',
-    status: 'pending',
-    avatar: 'OI',
-  },
-  {
-    id: 4,
-    customer: 'Layla Mohamed',
-    offer: 'Istanbul Explorer',
-    date: 'Feb 12, 2026',
-    amount: '$1,550',
-    status: 'confirmed',
-    avatar: 'LM',
-  },
-  {
-    id: 5,
-    customer: 'Yusuf Khalil',
-    offer: 'London Experience',
-    date: 'Feb 11, 2026',
-    amount: '$1,890',
-    status: 'cancelled',
-    avatar: 'YK',
-  },
-  {
-    id: 6,
-    customer: 'Amina Saleh',
-    offer: 'Rome Classic',
-    date: 'Feb 10, 2026',
-    amount: '$1,320',
-    status: 'confirmed',
-    avatar: 'AS',
-  },
-];
 
 const statusConfig = {
   confirmed: {
@@ -99,6 +44,37 @@ const gradients = [
 ];
 
 export function RecentBookings() {
+  const [bookingsData, setBookingsData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRecentBookings = async () => {
+      try {
+        setIsLoading(true);
+        const data = await bookingService.getAllBookings();
+        const bookingsArray = Array.isArray(data) ? data : (data?.bookings || []);
+        
+        // Take topmost 6 recent bookings
+        const mappedData = bookingsArray.slice(0, 6).map((booking: any) => ({
+          id: booking.id || booking._id,
+          customer: booking.user?.name || booking.customerName || 'Anonymous',
+          offer: booking.offer?.title || booking.offerName || 'Custom Trip',
+          date: booking.startDate || booking.date || '-',
+          amount: booking.totalAmount !== undefined ? `${booking.totalAmount} DZD` : (booking.amount || '0 DZD'),
+          status: (booking.status || 'pending') as 'confirmed' | 'pending' | 'cancelled',
+          avatar: (booking.user?.name || booking.customerName || 'A').split(' ').map((n: string) => n[0]).join('').toUpperCase(),
+        }));
+        
+        setBookingsData(mappedData);
+      } catch (err) {
+        console.error('Failed to fetch recent bookings:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchRecentBookings();
+  }, []);
+
   return (
     <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-6 shadow-lg">
       {/* Header */}
@@ -116,58 +92,66 @@ export function RecentBookings() {
 
       {/* Table */}
       <div className="space-y-2">
-        {bookings.map((booking, index) => {
-          const status = statusConfig[booking.status];
-          const StatusIcon = status.icon;
-          const gradientClass = gradients[index % gradients.length];
+        {isLoading ? (
+          <div className="flex justify-center py-10">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        ) : bookingsData.length === 0 ? (
+          <div className="text-center py-10 text-gray-500">No recent bookings</div>
+        ) : (
+          bookingsData.map((booking: any, index: number) => {
+            const status = statusConfig[booking.status as keyof typeof statusConfig] || statusConfig.pending;
+            const StatusIcon = status.icon;
+            const gradientClass = gradients[index % gradients.length];
 
-          return (
-            <motion.div
-              key={booking.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.5 + index * 0.05 }}
-              whileHover={{ backgroundColor: 'rgb(249 250 251)' }}
-              className="flex items-center gap-4 p-4 rounded-xl transition-colors cursor-pointer group"
-            >
-              {/* Avatar */}
-              <div
-                className={`w-10 h-10 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}
+            return (
+              <motion.div
+                key={booking.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 + index * 0.05 }}
+                whileHover={{ backgroundColor: 'rgb(249 250 251)' }}
+                className="flex items-center gap-4 p-4 rounded-xl transition-colors cursor-pointer group"
               >
-                {booking.avatar}
-              </div>
+                {/* Avatar */}
+                <div
+                  className={`w-10 h-10 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center text-white font-bold text-sm flex-shrink-0`}
+                >
+                  {booking.avatar}
+                </div>
 
-              {/* Customer & Offer */}
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 truncate">{booking.customer}</p>
-                <p className="text-sm text-gray-500 truncate">{booking.offer}</p>
-              </div>
+                {/* Customer & Offer */}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 truncate">{booking.customer}</p>
+                  <p className="text-sm text-gray-500 truncate">{booking.offer}</p>
+                </div>
 
-              {/* Date */}
-              <div className="hidden md:block text-sm text-gray-600">{booking.date}</div>
+                {/* Date */}
+                <div className="hidden md:block text-sm text-gray-600">{booking.date}</div>
 
-              {/* Amount */}
-              <div className="font-bold text-gray-900">{booking.amount}</div>
+                {/* Amount */}
+                <div className="font-bold text-gray-900">{booking.amount}</div>
 
-              {/* Status Badge */}
-              <div
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium ${status.bgClass} ${status.textClass}`}
-              >
-                <StatusIcon className="text-base" />
-                <span className="hidden sm:inline">{status.label}</span>
-              </div>
+                {/* Status Badge */}
+                <div
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium ${status.bgClass} ${status.textClass}`}
+                >
+                  <StatusIcon className="text-base" />
+                  <span className="hidden sm:inline">{status.label}</span>
+                </div>
 
-              {/* Actions Menu */}
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="opacity-0 group-hover:opacity-100 p-2 hover:bg-gray-200 rounded-lg transition-all"
-              >
-                <MoreVert className="text-gray-600 text-xl" />
-              </motion.button>
-            </motion.div>
-          );
-        })}
+                {/* Actions Menu */}
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="opacity-0 group-hover:opacity-100 p-2 hover:bg-gray-200 rounded-lg transition-all"
+                >
+                  <MoreVert className="text-gray-600 text-xl" />
+                </motion.button>
+              </motion.div>
+            );
+          })
+        )}
       </div>
     </div>
   );

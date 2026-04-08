@@ -16,58 +16,77 @@ interface Stat {
   bgGradient: string;
 }
 
-const stats: Stat[] = [
-  {
-    id: 1,
-    title: 'Total Revenue',
-    value: '$45,231',
-    change: '+12.5%',
-    trend: 'up',
-    icon: AttachMoney,
-    gradientFrom: 'from-emerald-500',
-    gradientTo: 'to-teal-600',
-    bgGradient: 'from-emerald-500 to-teal-600',
-  },
-  {
-    id: 2,
-    title: 'Active Offers',
-    value: '24',
-    change: '+3',
-    trend: 'up',
-    icon: Inventory2,
-    gradientFrom: 'from-blue-600',
-    gradientTo: 'to-indigo-600',
-    bgGradient: 'from-blue-600 to-indigo-600',
-  },
-  {
-    id: 3,
-    title: 'Total Bookings',
-    value: '1,429',
-    change: '+8.2%',
-    trend: 'up',
-    icon: People,
-    gradientFrom: 'from-purple-500',
-    gradientTo: 'to-pink-600',
-    bgGradient: 'from-purple-500 to-pink-600',
-  },
-  {
-    id: 4,
-    title: 'Pending Reviews',
-    value: '12',
-    change: '-2',
-    trend: 'down',
-    icon: Pending,
-    gradientFrom: 'from-orange-400',
-    gradientTo: 'to-red-500',
-    bgGradient: 'from-orange-400 to-red-500',
-  },
-];
-
+import { useState, useEffect } from 'react';
+import { adminService } from '../services/adminService';
 interface DashboardOverviewProps {
   onCreateOffer: () => void;
 }
 
 export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
+  const [statsData, setStatsData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setIsLoading(true);
+        const data = await adminService.getStats();
+        setStatsData(data);
+      } catch (err) {
+        console.error('Failed to fetch dashboard stats:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
+  const stats: Stat[] = [
+    {
+      id: 1,
+      title: 'Total Revenue',
+      value: statsData?.totalRevenue !== undefined ? `${statsData.totalRevenue.toLocaleString()} DZD` : '0 DZD',
+      change: statsData?.revenueChange || '0%',
+      trend: (statsData?.revenueChange || '').startsWith('-') ? 'down' : 'up',
+      icon: AttachMoney,
+      gradientFrom: 'from-emerald-500',
+      gradientTo: 'to-teal-600',
+      bgGradient: 'from-emerald-500 to-teal-600',
+    },
+    {
+      id: 2,
+      title: 'Active Offers',
+      value: statsData?.activeOffers?.toString() || '0',
+      change: statsData?.offersChange || '0',
+      trend: (statsData?.offersChange || '').startsWith('-') ? 'down' : 'up',
+      icon: Inventory2,
+      gradientFrom: 'from-blue-600',
+      gradientTo: 'to-indigo-600',
+      bgGradient: 'from-blue-600 to-indigo-600',
+    },
+    {
+      id: 3,
+      title: 'Total Bookings',
+      value: statsData?.totalBookings?.toLocaleString() || '0',
+      change: statsData?.bookingsChange || '0%',
+      trend: (statsData?.bookingsChange || '').startsWith('-') ? 'down' : 'up',
+      icon: People,
+      gradientFrom: 'from-purple-500',
+      gradientTo: 'to-pink-600',
+      bgGradient: 'from-purple-500 to-pink-600',
+    },
+    {
+      id: 4,
+      title: 'Pending Reviews',
+      value: statsData?.pendingReviews?.toString() || '0',
+      change: statsData?.reviewsChange || '0',
+      trend: (statsData?.reviewsChange || '').startsWith('+') ? 'up' : 'down',
+      icon: Pending,
+      gradientFrom: 'from-orange-400',
+      gradientTo: 'to-red-500',
+      bgGradient: 'from-orange-400 to-red-500',
+    },
+  ];
   return (
     <>
       {/* Stats Grid */}

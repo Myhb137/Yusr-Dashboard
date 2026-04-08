@@ -16,22 +16,22 @@ import {
   LocalActivity,
   Info,
 } from '@mui/icons-material';
+import { offerService } from '../services/offerService';
+import api from '../services/api';
 
 interface CreateOfferModalProps {
   isOpen: boolean;
   onClose: () => void;
   offer?: any;
+  onSuccess?: () => void;
 }
 
-const categories = [
-  'City Tour',
-  'Beach',
-  'Adventure',
-  'Cultural',
-  'Historical',
-  'Luxury',
-  'Family',
-  'Honeymoon',
+// Must match API enum: standard | custom | special | activity
+const offerTypes = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'custom', label: 'Custom' },
+  { value: 'special', label: 'Special' },
+  { value: 'activity', label: 'Activity' },
 ];
 
 const inclusions = [
@@ -42,29 +42,75 @@ const inclusions = [
   { id: 'activities', label: 'Activities', icon: LocalActivity },
 ];
 
-export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalProps) {
+export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOfferModalProps) {
   const [formData, setFormData] = useState({
-    name: offer?.name || '',
-    destination: offer?.destination || '',
-    category: offer?.category || 'City Tour',
-    price: offer?.price?.replace('$', '').replace(',', '') || '',
-    duration: offer?.duration?.replace(' days', '') || '',
-    maxPeople: '15',
-    description: '',
-    highlights: [''],
+    name: offer?.title || offer?.name || '',
+    destination: offer?.location || offer?.destination || '',
+    type: offer?.type || 'standard',
+    price: offer?.total_price?.toString() || offer?.price?.toString().replace(' DZD', '').replace('$', '').replace(',', '') || '',
+    duration: offer?.duration?.toString()?.replace(' days', '') || '',
+    maxPeople: offer?.places?.toString() || '15',
+    description: offer?.description || '',
+    highlights: offer?.amenities?.length ? offer.amenities : [''],
     inclusions: ['flights', 'hotel'],
-    itinerary: [{ day: 1, title: '', description: '' }],
-    status: offer?.status || 'draft',
+    itinerary: offer?.itinerary?.length
+      ? offer.itinerary.map((t: string, i: number) => ({ day: i + 1, title: '', description: t }))
+      : [{ day: 1, title: '', description: '' }],
+    status: offer?.available === false ? 'draft' : 'active',
   });
 
   const [images, setImages] = useState<string[]>([]);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Form submitted:', formData);
-    onClose();
+    setError(null);
+    setIsSubmitting(true);
+    
+    try {
+      const payload: Record<string, any> = {
+        title: formData.name,
+        location: formData.destination,
+        type: formData.type,          // must be standard|custom|special|activity
+        description: formData.description,
+        duration: formData.duration ? `${formData.duration} days` : undefined,
+        places: parseInt(formData.maxPeople, 10) || undefined,
+        available: formData.status === 'active',
+        total_price: parseFloat(formData.price) || undefined,
+        currency: 'DZD',
+        amenities: formData.highlights.filter((h: string) => h.trim() !== ''),
+        itinerary: formData.itinerary
+          .map((day: any) => day.title ? `Day ${day.day} – ${day.title}: ${day.description}` : day.description)
+          .filter(Boolean),
+      };
+      const imageVal = images.length > 0 ? images[0] : (offer?.image_url || offer?.image || '');
+      if (imageVal) payload.image_url = imageVal;
+
+      if (offer) {
+        // Update existing
+        await offerService.updateOffer((offer.id || offer._id).toString(), payload);
+      } else {
+        // Create new
+        await offerService.createOffer(payload);
+      }
+      
+      // Trigger a refresh of the offers list
+      onSuccess?.();
+      onClose();
+    } catch (err: any) {
+      console.error('Failed to save offer:', err?.response?.data || err.message);
+      const msg = err?.response?.data?.message
+        || (Array.isArray(err?.response?.data?.data) ? err.response.data.data.map((d: any) => d.message).join(', ') : null)
+        || err?.message
+        || 'Failed to save offer. Please try again.';
+      setError(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const addHighlight = () => {
@@ -78,7 +124,7 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
   };
 
   const removeHighlight = (index: number) => {
-    const newHighlights = formData.highlights.filter((_, i) => i !== index);
+    const newHighlights = formData.highlights.filter((_: any, i: number) => i !== index);
     setFormData({ ...formData, highlights: newHighlights });
   };
 
@@ -176,17 +222,17 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Category *
+                    Type *
                   </label>
                   <select
                     required
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer"
                   >
-                    {categories.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
+                    {offerTypes.map(({ value, label }) => (
+                      <option key={value} value={value}>
+                        {label}
                       </option>
                     ))}
                   </select>
@@ -209,7 +255,7 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Price (USD) *
+                    Price (DZD) *
                   </label>
                   <div className="relative">
                     <AttachMoney className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -277,19 +323,36 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
             {/* Images */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Images
+                Image URL *
               </label>
-              <motion.div
-                whileHover={{ scale: 1.01 }}
-                className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:border-blue-500 transition-all cursor-pointer bg-gray-50"
-              >
-                <CloudUpload className="text-gray-400 text-5xl mx-auto mb-3" />
-                <p className="text-gray-600 mb-1">
-                  <span className="text-blue-600 font-medium">Click to upload</span> or drag and
-                  drop
-                </p>
-                <p className="text-sm text-gray-500">PNG, JPG up to 10MB</p>
-              </motion.div>
+              <input
+                type="url"
+                required
+                value={images.length > 0 ? images[0] : (offer?.image_url || offer?.image || '')}
+                onChange={(e) => setImages([e.target.value])}
+                placeholder="https://example.com/image.jpg"
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              />
+              {(images.length > 0 ? images[0] : (offer?.image_url || offer?.image || '')) && (
+                <div className="mt-3 relative w-full h-40 rounded-xl overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center text-gray-400">
+                  <img
+                    src={images.length > 0 ? images[0] : (offer?.image_url || offer?.image || '')}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // Hide the broken image icon completely
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                    onLoad={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'block';
+                    }}
+                  />
+                  {/* Fallback text that shows if image is hidden */}
+                  <div className="absolute inset-0 flex items-center justify-center -z-10">
+                    <span className="text-sm font-medium">Invalid or empty image URL</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Highlights */}
@@ -309,7 +372,7 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
               </div>
 
               <div className="space-y-2">
-                {formData.highlights.map((highlight, index) => (
+                {formData.highlights.map((highlight: string, index: number) => (
                   <div key={index} className="flex items-center gap-2">
                     <input
                       type="text"
@@ -382,7 +445,7 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
               </div>
 
               <div className="space-y-4">
-                {formData.itinerary.map((day, index) => (
+                {formData.itinerary.map((day: any, index: number) => (
                   <div key={index} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
                     <h4 className="font-bold text-gray-900 mb-3">Day {day.day}</h4>
                     <div className="space-y-2">
@@ -416,6 +479,13 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
           </div>
         </form>
 
+        {/* Error Message */}
+        {error && (
+          <div className="px-6 py-3 bg-red-50 text-red-600 border-t border-red-100 text-sm font-medium text-center">
+            {error}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
           <motion.button
@@ -423,7 +493,8 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={onClose}
-            className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium"
+            disabled={isSubmitting}
+            className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium disabled:opacity-50"
           >
             Cancel
           </motion.button>
@@ -432,9 +503,16 @@ export function CreateOfferModal({ isOpen, onClose, offer }: CreateOfferModalPro
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={handleSubmit}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-600/30 hover:shadow-xl hover:shadow-blue-600/40 transition-all font-medium"
+            disabled={isSubmitting}
+            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-600/30 hover:shadow-xl hover:shadow-blue-600/40 transition-all font-medium disabled:opacity-50 flex items-center justify-center min-w-[140px]"
           >
-            {offer ? 'Update Offer' : 'Create Offer'}
+            {isSubmitting ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            ) : offer ? (
+              'Update Offer'
+            ) : (
+              'Create Offer'
+            )}
           </motion.button>
         </div>
       </motion.div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Dashboard,
@@ -7,15 +7,17 @@ import {
   TrendingUp,
   Settings,
   ExitToApp,
-  Menu,
-  Close
+  Close,
+  AdminPanelSettings
 } from '@mui/icons-material';
+import { authService } from '../services/authService';
 
 interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  onLogout: () => void;
 }
 
 interface MenuItem {
@@ -32,7 +34,27 @@ const menuItems: MenuItem[] = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export function Sidebar({ isOpen, onToggle, activeTab, onTabChange }: SidebarProps) {
+const superAdminOnlyItems: MenuItem[] = [
+  { id: 'admins', label: 'Platform Management', icon: AdminPanelSettings },
+];
+
+export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: SidebarProps) {
+  const [user, setUser] = useState<any>(() => authService.getStoredUser());
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const userData = await authService.getCurrentUser();
+        if (userData && !userData.error) {
+          setUser(userData.user || userData);
+        }
+      } catch (err) {
+        console.error('Failed to fetch user:', err);
+      }
+    };
+    fetchUser();
+  }, []);
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -71,7 +93,7 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange }: SidebarPro
 
         {/* Navigation Menu */}
         <nav className="flex-1 p-4 space-y-2">
-          {menuItems.map((item, index) => {
+          {[...menuItems, ...(user?.role === 'superadmin' ? superAdminOnlyItems : [])].map((item, index) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
 
@@ -104,21 +126,22 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange }: SidebarPro
             className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold">
-              AS
+              {user?.name?.charAt(0) || user?.email?.charAt(0) || 'A'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm text-gray-900 truncate">Ahmed Salem</p>
-              <p className="text-xs text-gray-500 truncate">agency@yusr.com</p>
+              <p className="font-medium text-sm text-gray-900 truncate">{user?.name || 'User'}</p>
+              <p className="text-xs text-gray-500 truncate">{user?.email || 'email@yusr.com'}</p>
             </div>
           </motion.div>
 
           <motion.button
+            onClick={onLogout}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="w-full mt-3 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-gray-200 hover:border-red-300 hover:bg-red-50 text-gray-700 hover:text-red-600 transition-all"
+            className="w-full mt-3 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-gray-200 hover:border-red-300 hover:bg-red-50 text-gray-700 hover:text-red-600 transition-all font-medium"
           >
             <ExitToApp className="text-xl" />
-            <span className="font-medium">Logout</span>
+            <span>Logout</span>
           </motion.button>
         </div>
       </motion.aside>

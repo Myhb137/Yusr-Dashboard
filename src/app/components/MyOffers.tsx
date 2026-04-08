@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   GridView,
@@ -12,6 +12,8 @@ import {
   Drafts,
 } from '@mui/icons-material';
 import { OfferCard } from './OfferCard';
+import { offerService } from '../services/offerService';
+import api from '../services/api';
 
 interface Offer {
   id: number;
@@ -26,161 +28,66 @@ interface Offer {
   category: string;
 }
 
-const offers: Offer[] = [
-  {
-    id: 1,
-    name: 'Paris Adventure',
-    destination: 'Paris, France',
-    image: 'https://images.unsplash.com/photo-1595441857632-71570ef36580?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxQYXJpcyUyMEVpZmZlbCUyMFRvd2VyJTIwdHJhdmVsfGVufDF8fHx8MTc3MDk4ODUzOHww&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$1,200',
-    duration: '7 days',
-    bookings: 145,
-    rating: 4.8,
-    status: 'active',
-    category: 'City Tour',
-  },
-  {
-    id: 2,
-    name: 'Dubai Luxury Tour',
-    destination: 'Dubai, UAE',
-    image: 'https://images.unsplash.com/photo-1768069794857-9306ac167c6e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxEdWJhaSUyMHNreWxpbmUlMjBsdXh1cnl8ZW58MXx8fHwxNzcwOTIwNzUwfDA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$2,450',
-    duration: '5 days',
-    bookings: 132,
-    rating: 4.9,
-    status: 'active',
-    category: 'Luxury',
-  },
-  {
-    id: 3,
-    name: 'Tokyo Explorer',
-    destination: 'Tokyo, Japan',
-    image: 'https://images.unsplash.com/photo-1648871647634-0c99b483cb63?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxUb2t5byUyMEphcGFuJTIwY2l0eXNjYXBlfGVufDF8fHx8MTc3MDkyMDg5Mnww&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$1,700',
-    duration: '8 days',
-    bookings: 118,
-    rating: 4.7,
-    status: 'active',
-    category: 'Cultural',
-  },
-  {
-    id: 4,
-    name: 'London Experience',
-    destination: 'London, UK',
-    image: 'https://images.unsplash.com/photo-1745016176874-cd3ed3f5bfc6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxMb25kb24lMjBCaWclMjBCZW58ZW58MXx8fHwxNzcwOTEzNzE1fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$1,890',
-    duration: '6 days',
-    bookings: 98,
-    rating: 4.6,
-    status: 'paused',
-    category: 'City Tour',
-  },
-  {
-    id: 5,
-    name: 'Istanbul Discovery',
-    destination: 'Istanbul, Turkey',
-    image: 'https://images.unsplash.com/photo-1613221357276-8fe60524973d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxJc3RhbmJ1bCUyMFR1cmtleSUyMG1vc3F1ZXxlbnwxfHx8fDE3NzA4OTMwNTB8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$1,550',
-    duration: '7 days',
-    bookings: 87,
-    rating: 4.5,
-    status: 'active',
-    category: 'Cultural',
-  },
-  {
-    id: 6,
-    name: 'Rome Classic',
-    destination: 'Rome, Italy',
-    image: 'https://images.unsplash.com/photo-1698103182362-51abdc45d008?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxSb21lJTIwQ29sb3NzZXVtJTIwSXRhbHl8ZW58MXx8fHwxNzcwOTkyMTQyfDA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$1,320',
-    duration: '5 days',
-    bookings: 76,
-    rating: 4.4,
-    status: 'active',
-    category: 'Historical',
-  },
-  {
-    id: 7,
-    name: 'Barcelona Getaway',
-    destination: 'Barcelona, Spain',
-    image: 'https://images.unsplash.com/photo-1630083937332-83b3841e9162?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxCYXJjZWxvbmElMjBTcGFpbiUyMGFyY2hpdGVjdHVyZXxlbnwxfHx8fDE3NzA5MTc3Njh8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$1,450',
-    duration: '6 days',
-    bookings: 65,
-    rating: 4.7,
-    status: 'draft',
-    category: 'Beach',
-  },
-  {
-    id: 8,
-    name: 'New York Explorer',
-    destination: 'New York, USA',
-    image: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxOZXclMjBZb3JrJTIwQ2l0eSUyMHNreWxpbmV8ZW58MXx8fHwxNzcwOTUxMzY1fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$2,100',
-    duration: '7 days',
-    bookings: 92,
-    rating: 4.8,
-    status: 'active',
-    category: 'City Tour',
-  },
-  {
-    id: 9,
-    name: 'Santorini Sunset',
-    destination: 'Santorini, Greece',
-    image: 'https://images.unsplash.com/photo-1676730056228-7e38cbb88edc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxTYW50b3JpbmklMjBHcmVlY2UlMjBzdW5zZXR8ZW58MXx8fHwxNzcwOTEyNDk3fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$1,980',
-    duration: '5 days',
-    bookings: 103,
-    rating: 4.9,
-    status: 'active',
-    category: 'Beach',
-  },
-  {
-    id: 10,
-    name: 'Maldives Paradise',
-    destination: 'Maldives',
-    image: 'https://images.unsplash.com/photo-1698726654862-377c0218dfdc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxNYWxkaXZlcyUyMGJlYWNoJTIwcmVzb3J0fGVufDF8fHx8MTc3MDk3NTg0Mnww&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$3,200',
-    duration: '7 days',
-    bookings: 78,
-    rating: 5.0,
-    status: 'active',
-    category: 'Luxury',
-  },
-  {
-    id: 11,
-    name: 'Cairo Historical',
-    destination: 'Cairo, Egypt',
-    image: 'https://images.unsplash.com/photo-1692986172150-ec32dccfa5f0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxDYWlybyUyMEVneXB0JTIwcHlyYW1pZHN8ZW58MXx8fHwxNzcxMDAwMjIxfDA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$890',
-    duration: '4 days',
-    bookings: 54,
-    rating: 4.3,
-    status: 'draft',
-    category: 'Historical',
-  },
-  {
-    id: 12,
-    name: 'Swiss Alps Adventure',
-    destination: 'Swiss Alps, Switzerland',
-    image: 'https://images.unsplash.com/photo-1633942515749-f93dddbbcff9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxTd2lzcyUyMEFscHMlMjBtb3VudGFpbnN8ZW58MXx8fHwxNzcwOTIwMDExfDA&ixlib=rb-4.1.0&q=80&w=1080',
-    price: '$2,650',
-    duration: '8 days',
-    bookings: 61,
-    rating: 4.6,
-    status: 'active',
-    category: 'Adventure',
-  },
-];
-
 interface MyOffersProps {
   onCreateOffer: () => void;
+  onEditOffer: (offer: Offer) => void;
+  refreshTrigger: number;
 }
 
-export function MyOffers({ onCreateOffer }: MyOffersProps) {
+export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffersProps) {
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'draft' | 'paused'>('all');
+
+  useEffect(() => {
+    const fetchOffers = async () => {
+      try {
+        setIsLoading(true);
+        const data = await offerService.getAllOffers();
+        
+        // Handle potential different response structures (e.g., data.offers vs data)
+        const offersArray = Array.isArray(data) ? data : (data?.offers || []);
+        
+        const mappedOffers = offersArray.map((offer: any) => ({
+          ...offer,
+          id: offer.id || offer._id,
+          name: offer.title || offer.name || 'Untitled Offer',
+          destination: offer.location || offer.destination || 'Unknown Location',
+          image: offer.image_url || offer.image || 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?q=80&w=1080&auto=format&fit=crop',
+          price: offer.total_price !== undefined ? `${offer.total_price} DZD` : (typeof offer.price === 'number' ? `${offer.price} DZD` : (offer.price ? String(offer.price).replace('$', '') + ' DZD' : '0 DZD')),
+          duration: typeof offer.duration === 'number' ? `${offer.duration} days` : offer.duration || '0 days',
+          bookings: offer.places || offer.bookings || 0,
+          rating: offer.rating || 0,
+          status: offer.available === true ? 'active' : (offer.available === false ? 'paused' : (offer.status || 'draft')),
+          category: offer.type || offer.category || 'Standard',
+        }));
+        
+        setOffers(mappedOffers);
+      } catch (err: any) {
+        console.error('Failed to fetch offers:', err);
+        setError(err.response?.data?.message || 'Failed to load offers. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchOffers();
+  }, [refreshTrigger]);
+
+  const handleDeleteOffer = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this offer?')) return;
+    try {
+      await offerService.deleteOffer(id.toString());
+      setOffers(prevOffers => prevOffers.filter(offer => offer.id !== id));
+    } catch (err: any) {
+      console.error('Failed to delete offer:', err);
+      alert(err.response?.data?.message || 'Failed to delete the offer.');
+    }
+  };
 
   const filteredOffers = offers.filter((offer) => {
     const matchesSearch =
@@ -353,7 +260,15 @@ export function MyOffers({ onCreateOffer }: MyOffersProps) {
       </div>
 
       {/* Offers Grid/List */}
-      {filteredOffers.length === 0 ? (
+      {isLoading ? (
+        <div className="flex justify-center items-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      ) : error ? (
+        <div className="text-center py-12 text-red-500 bg-red-50 rounded-2xl border border-red-100">
+          <p className="font-medium text-lg">{error}</p>
+        </div>
+      ) : filteredOffers.length === 0 ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -387,7 +302,14 @@ export function MyOffers({ onCreateOffer }: MyOffersProps) {
           }
         >
           {filteredOffers.map((offer, index) => (
-            <OfferCard key={offer.id} offer={offer} index={index} viewMode={viewMode} />
+            <OfferCard 
+              key={offer.id} 
+              offer={offer} 
+              index={index} 
+              viewMode={viewMode} 
+              onEdit={() => onEditOffer(offer)}
+              onDelete={() => handleDeleteOffer(offer.id)}
+            />
           ))}
         </div>
       )}

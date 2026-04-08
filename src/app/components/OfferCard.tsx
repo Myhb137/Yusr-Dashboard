@@ -29,6 +29,8 @@ interface OfferCardProps {
   offer: Offer;
   index: number;
   viewMode: 'grid' | 'list';
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 const statusConfig = {
@@ -52,7 +54,7 @@ const statusConfig = {
   },
 };
 
-export function OfferCard({ offer, index, viewMode }: OfferCardProps) {
+export function OfferCard({ offer, index, viewMode, onEdit, onDelete }: OfferCardProps) {
   const [showActions, setShowActions] = useState(false);
   const status = statusConfig[offer.status];
 
@@ -110,7 +112,6 @@ export function OfferCard({ offer, index, viewMode }: OfferCardProps) {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -123,10 +124,26 @@ export function OfferCard({ offer, index, viewMode }: OfferCardProps) {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit?.();
+              }}
               className="p-2 hover:bg-indigo-50 text-indigo-600 rounded-xl transition-colors"
               title="Edit"
             >
               <Edit className="text-xl" />
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete?.();
+              }}
+              className="p-2 hover:bg-red-50 text-red-600 rounded-xl transition-colors"
+              title="Delete"
+            >
+              <Delete className="text-xl" />
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -176,6 +193,10 @@ export function OfferCard({ offer, index, viewMode }: OfferCardProps) {
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit?.();
+            }}
             className="p-3 bg-white/90 backdrop-blur-sm rounded-xl hover:bg-white transition-colors"
             title="Edit"
           >
@@ -192,6 +213,10 @@ export function OfferCard({ offer, index, viewMode }: OfferCardProps) {
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete?.();
+            }}
             className="p-3 bg-white/90 backdrop-blur-sm rounded-xl hover:bg-white transition-colors"
             title="Delete"
           >

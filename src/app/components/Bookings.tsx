@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Search,
@@ -13,6 +13,8 @@ import {
   Person,
   LocationOn,
 } from '@mui/icons-material';
+
+import { bookingService } from '../services/bookingService';
 
 interface Booking {
   id: number;
@@ -29,124 +31,46 @@ interface Booking {
   paymentStatus: 'paid' | 'pending' | 'refunded';
 }
 
-const bookings: Booking[] = [
-  {
-    id: 1,
-    bookingRef: 'YT-2024-001',
-    customerName: 'John Smith',
-    customerEmail: 'john.smith@email.com',
-    offerName: 'Paris Adventure',
-    destination: 'Paris, France',
-    startDate: '2024-03-15',
-    endDate: '2024-03-22',
-    travelers: 2,
-    amount: '$2,400',
-    status: 'confirmed',
-    paymentStatus: 'paid',
-  },
-  {
-    id: 2,
-    bookingRef: 'YT-2024-002',
-    customerName: 'Sarah Johnson',
-    customerEmail: 'sarah.j@email.com',
-    offerName: 'Dubai Luxury Tour',
-    destination: 'Dubai, UAE',
-    startDate: '2024-03-20',
-    endDate: '2024-03-25',
-    travelers: 4,
-    amount: '$9,800',
-    status: 'confirmed',
-    paymentStatus: 'paid',
-  },
-  {
-    id: 3,
-    bookingRef: 'YT-2024-003',
-    customerName: 'Michael Chen',
-    customerEmail: 'mchen@email.com',
-    offerName: 'Tokyo Explorer',
-    destination: 'Tokyo, Japan',
-    startDate: '2024-04-01',
-    endDate: '2024-04-09',
-    travelers: 2,
-    amount: '$3,400',
-    status: 'pending',
-    paymentStatus: 'pending',
-  },
-  {
-    id: 4,
-    bookingRef: 'YT-2024-004',
-    customerName: 'Emma Williams',
-    customerEmail: 'emma.w@email.com',
-    offerName: 'Santorini Sunset',
-    destination: 'Santorini, Greece',
-    startDate: '2024-04-10',
-    endDate: '2024-04-15',
-    travelers: 2,
-    amount: '$3,960',
-    status: 'confirmed',
-    paymentStatus: 'paid',
-  },
-  {
-    id: 5,
-    bookingRef: 'YT-2024-005',
-    customerName: 'David Brown',
-    customerEmail: 'dbrown@email.com',
-    offerName: 'London Experience',
-    destination: 'London, UK',
-    startDate: '2024-03-25',
-    endDate: '2024-03-31',
-    travelers: 3,
-    amount: '$5,670',
-    status: 'cancelled',
-    paymentStatus: 'refunded',
-  },
-  {
-    id: 6,
-    bookingRef: 'YT-2024-006',
-    customerName: 'Lisa Anderson',
-    customerEmail: 'lisa.a@email.com',
-    offerName: 'Maldives Paradise',
-    destination: 'Maldives',
-    startDate: '2024-05-01',
-    endDate: '2024-05-08',
-    travelers: 2,
-    amount: '$6,400',
-    status: 'confirmed',
-    paymentStatus: 'paid',
-  },
-  {
-    id: 7,
-    bookingRef: 'YT-2024-007',
-    customerName: 'James Wilson',
-    customerEmail: 'jwilson@email.com',
-    offerName: 'Swiss Alps Adventure',
-    destination: 'Swiss Alps, Switzerland',
-    startDate: '2024-04-15',
-    endDate: '2024-04-23',
-    travelers: 4,
-    amount: '$10,600',
-    status: 'pending',
-    paymentStatus: 'pending',
-  },
-  {
-    id: 8,
-    bookingRef: 'YT-2024-008',
-    customerName: 'Sophia Martinez',
-    customerEmail: 'sophia.m@email.com',
-    offerName: 'Istanbul Discovery',
-    destination: 'Istanbul, Turkey',
-    startDate: '2024-03-28',
-    endDate: '2024-04-04',
-    travelers: 2,
-    amount: '$3,100',
-    status: 'confirmed',
-    paymentStatus: 'paid',
-  },
-];
-
 export function Bookings() {
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'confirmed' | 'pending' | 'cancelled'>('all');
+
+  useEffect(() => {
+    const fetchBookings = async () => {
+      try {
+        setIsLoading(true);
+        const data = await bookingService.getAllBookings();
+        const bookingsArray = Array.isArray(data) ? data : (data?.bookings || []);
+        
+        const mappedBookings = bookingsArray.map((booking: any) => ({
+          id: booking.id || booking._id,
+          bookingRef: booking.ref || booking.bookingRef || `BK-${(booking.id || booking._id).toString().slice(-6).toUpperCase()}`,
+          customerName: booking.user?.name || booking.customerName || 'Anonymous',
+          customerEmail: booking.user?.email || booking.customerEmail || '-',
+          offerName: booking.offer?.title || booking.offerName || 'Custom Trip',
+          destination: booking.offer?.location || booking.destination || '-',
+          startDate: booking.startDate || booking.start_date || '-',
+          endDate: booking.endDate || booking.end_date || '-',
+          travelers: booking.travelers || booking.people || 1,
+          amount: booking.totalAmount !== undefined ? `${booking.totalAmount} DZD` : (booking.amount || '0 DZD'),
+          status: booking.status || 'pending',
+          paymentStatus: booking.paymentStatus || (booking.paid ? 'paid' : 'pending'),
+        }));
+        
+        setBookings(mappedBookings);
+      } catch (err: any) {
+        console.error('Failed to fetch bookings:', err);
+        setError('Failed to load bookings.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchBookings();
+  }, []);
 
   const filteredBookings = bookings.filter((booking) => {
     const matchesSearch =
