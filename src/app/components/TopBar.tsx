@@ -42,7 +42,7 @@ export function TopBar({ onMenuToggle, activeTab }: TopBarProps) {
   const currentLang = languageOptions.find(l => l.code === language)!;
 
   return (
-    <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200/50 px-6 py-4 shadow-sm">
+    <header className="relative z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200/50 px-6 py-4 shadow-sm">
       <div className="flex items-center justify-between">
         {/* Left Section */}
         <div className={`flex items-center gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
@@ -88,7 +88,7 @@ export function TopBar({ onMenuToggle, activeTab }: TopBarProps) {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -4 }}
                   transition={{ duration: 0.15 }}
-                  className={`absolute top-full mt-2 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 ${isRTL ? 'left-0' : 'right-0'}`}
+                  className={`absolute top-full mt-2 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-[100] ${isRTL ? 'left-0' : 'right-0'}`}
                 >
                   {languageOptions.map(option => (
                     <button

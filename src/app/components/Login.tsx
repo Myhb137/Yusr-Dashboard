@@ -59,7 +59,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
       <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 sm:px-16 md:px-24 xl:px-32 relative">
 
         {/* Language Switcher — top corner */}
-        <div className={`absolute top-8 ${isRTL ? 'left-8 sm:left-16' : 'right-8 sm:right-16'}`}>
+        <div className={`absolute top-8 ${isRTL ? 'left-8 sm:left-16' : 'right-8 sm:right-16'} z-50`}>
           <div className="relative">
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -79,7 +79,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -4 }}
                   transition={{ duration: 0.15 }}
-                  className={`absolute top-full mt-2 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 ${isRTL ? 'left-0' : 'right-0'}`}
+                  className={`absolute top-full mt-2 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-100 ${isRTL ? 'left-0' : 'right-0'}`}
                 >
                   {languageOptions.map(option => (
                     <button
