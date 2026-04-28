@@ -15,20 +15,100 @@ import {
   Lock,
   Visibility,
   VisibilityOff,
+  CheckCircle,
+  Cancel
 } from '@mui/icons-material';
+import { authService } from '../services/authService';
+import { useEffect } from 'react';
 
 export function Settings() {
   const [activeSection, setActiveSection] = useState<'profile' | 'agency' | 'notifications' | 'security' | 'payment'>('profile');
   const [isEditing, setIsEditing] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Profile State
   const [profileData, setProfileData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     phone: '',
-    language: 'en',
   });
+
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  const fetchProfile = async () => {
+    try {
+      const data = await authService.getCurrentUser();
+      const user = data.user || data;
+      setProfileData({
+        firstName: user.firstName || user.first_name || '',
+        lastName: user.lastName || user.last_name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+      });
+    } catch (err) {
+      console.error('Failed to fetch profile', err);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!isEditing) {
+      setIsEditing(true);
+      return;
+    }
+    setLoading(true);
+    setMessage(null);
+    try {
+      await authService.updateProfile({
+        firstName: profileData.firstName,
+        lastName: profileData.lastName,
+        phone: profileData.phone,
+      });
+      setMessage({ type: 'success', text: 'Profile updated successfully!' });
+      setIsEditing(false);
+      
+      // Update local storage so the TopBar and Sidebar show the new name
+      const stored = authService.getStoredUser();
+      if (stored) {
+        localStorage.setItem('user', JSON.stringify({ ...stored, firstName: profileData.firstName, lastName: profileData.lastName, name: `${profileData.firstName} ${profileData.lastName}` }));
+      }
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data?.message || err.response?.data?.detail || 'Failed to update profile.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setMessage({ type: 'error', text: 'New passwords do not match!' });
+      return;
+    }
+    setLoading(true);
+    setMessage(null);
+    try {
+      await authService.changePassword({
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
+      });
+      setMessage({ type: 'success', text: 'Password successfully updated!' });
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data?.message || err.response?.data?.detail || 'Failed to change password.' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Agency State
   const [agencyData, setAgencyData] = useState({
@@ -64,9 +144,10 @@ export function Settings() {
           <p className="text-sm text-gray-500 mt-1">Manage your personal information</p>
         </div>
         <motion.button
+          disabled={loading}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => setIsEditing(!isEditing)}
+          onClick={handleSaveProfile}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${
             isEditing
               ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg'
@@ -76,7 +157,7 @@ export function Settings() {
           {isEditing ? (
             <>
               <Save className="text-xl" />
-              Save Changes
+              {loading ? 'Saving...' : 'Save Changes'}
             </>
           ) : (
             <>
@@ -89,11 +170,11 @@ export function Settings() {
 
       {/* Profile Picture */}
       <div className="flex items-center gap-6 p-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
-        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
-          {profileData.name.charAt(0) || 'U'}
+        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg uppercase">
+          {profileData.firstName.charAt(0) || 'U'}
         </div>
         <div className="flex-1">
-          <h3 className="text-xl font-bold text-gray-900">{profileData.name}</h3>
+          <h3 className="text-xl font-bold text-gray-900">{profileData.firstName} {profileData.lastName}</h3>
           <p className="text-sm text-gray-500 mb-3">{profileData.email}</p>
           {isEditing && (
             <motion.button
@@ -111,12 +192,25 @@ export function Settings() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
-            <Person className="inline text-lg mr-1" /> Full Name
+            <Person className="inline text-lg mr-1" /> First Name
           </label>
           <input
             type="text"
-            value={profileData.name}
-            onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+            value={profileData.firstName}
+            onChange={(e) => setProfileData({ ...profileData, firstName: e.target.value })}
+            disabled={!isEditing}
+            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            <Person className="inline text-lg mr-1" /> Last Name
+          </label>
+          <input
+            type="text"
+            value={profileData.lastName}
+            onChange={(e) => setProfileData({ ...profileData, lastName: e.target.value })}
             disabled={!isEditing}
             className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 transition-all"
           />
@@ -129,9 +223,8 @@ export function Settings() {
           <input
             type="email"
             value={profileData.email}
-            onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-            disabled={!isEditing}
-            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+            disabled={true} // Usually email is uneditable or requires a different process
+            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 transition-all cursor-not-allowed"
           />
         </div>
 
@@ -146,23 +239,6 @@ export function Settings() {
             disabled={!isEditing}
             className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 transition-all"
           />
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            <Language className="inline text-lg mr-1" /> Language
-          </label>
-          <select
-            value={profileData.language}
-            onChange={(e) => setProfileData({ ...profileData, language: e.target.value })}
-            disabled={!isEditing}
-            className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 cursor-pointer transition-all"
-          >
-            <option value="en">English</option>
-            <option value="ar">العربية</option>
-            <option value="fr">Français</option>
-            <option value="es">Español</option>
-          </select>
         </div>
       </div>
     </div>
@@ -344,6 +420,8 @@ export function Settings() {
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}
+                value={passwordData.currentPassword}
+                onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                 placeholder="Enter current password"
                 className="w-full px-4 py-3 pr-12 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               />
@@ -359,6 +437,8 @@ export function Settings() {
             <label className="block text-sm font-semibold text-gray-700 mb-2">New Password</label>
             <input
               type="password"
+              value={passwordData.newPassword}
+              onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
               placeholder="Enter new password"
               className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
             />
@@ -367,16 +447,20 @@ export function Settings() {
             <label className="block text-sm font-semibold text-gray-700 mb-2">Confirm New Password</label>
             <input
               type="password"
+              value={passwordData.confirmPassword}
+              onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
               placeholder="Confirm new password"
               className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
             />
           </div>
           <motion.button
+            disabled={loading || !passwordData.currentPassword || !passwordData.newPassword}
+            onClick={handleChangePassword}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="w-full md:w-auto px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg font-medium hover:shadow-xl transition-all"
+            className="w-full md:w-auto px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg font-medium hover:shadow-xl transition-all disabled:opacity-50"
           >
-            Update Password
+            {loading ? 'Updating...' : 'Update Password'}
           </motion.button>
         </div>
       </div>
@@ -513,6 +597,16 @@ export function Settings() {
 
       {/* Content Area */}
       <div className="lg:col-span-3">
+        {/* Global Alert Messages */}
+        {message && (
+          <div className={`mb-6 p-4 rounded-xl flex items-center gap-3 ${
+            message.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-800'
+          }`}>
+            {message.type === 'success' ? <CheckCircle className="text-emerald-500" /> : <Cancel className="text-red-500" />}
+            <span className="font-medium text-sm">{message.text}</span>
+          </div>
+        )}
+
         <motion.div
           key={activeSection}
           initial={{ opacity: 0, x: 20 }}

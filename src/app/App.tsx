@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { DashboardOverview } from './components/DashboardOverview';
@@ -9,6 +9,7 @@ import { Settings } from './components/Settings';
 import { CreateOfferModal } from './components/CreateOfferModal';
 import { Login } from './components/Login';
 import { AdminManagement } from './components/AdminManagement';
+import { LanguageProvider } from './context/LanguageContext';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
@@ -24,28 +25,28 @@ export default function App() {
     setIsAuthenticated(!!token);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     setIsAuthenticated(false);
-  };
+  }, []);
 
-  const openOfferModal = (offer: any = null) => {
+  const openOfferModal = useCallback((offer: any = null) => {
     setEditingOffer(offer);
     setIsCreateOfferModalOpen(true);
-  };
+  }, []);
 
-  const closeOfferModal = () => {
+  const closeOfferModal = useCallback(() => {
     setEditingOffer(null);
     setIsCreateOfferModalOpen(false);
-  };
+  }, []);
 
-  const handleTabChange = (tab: string) => {
+  const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab);
     // Close sidebar on mobile when tab is selected
     if (window.innerWidth < 1024) {
       setSidebarOpen(false);
     }
-  };
+  }, []);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -74,41 +75,43 @@ export default function App() {
 
   if (!isAuthenticated) {
     return (
-      <Login 
-        onLoginSuccess={() => setIsAuthenticated(true)} 
-      />
+      <LanguageProvider>
+        <Login onLoginSuccess={() => setIsAuthenticated(true)} />
+      </LanguageProvider>
     );
   }
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/40 overflow-hidden">
-      {/* Sidebar */}
-      <Sidebar
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-        onLogout={handleLogout}
-      />
+    <LanguageProvider>
+      <div className="flex h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/40 overflow-hidden">
+        {/* Sidebar */}
+        <Sidebar
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen(!sidebarOpen)}
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          onLogout={handleLogout}
+        />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar */}
-        <TopBar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} activeTab={activeTab} />
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Top Bar */}
+          <TopBar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} activeTab={activeTab} />
 
-        {/* Content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {renderContent()}
-        </main>
+          {/* Content */}
+          <main className="flex-1 overflow-y-auto p-6">
+            {renderContent()}
+          </main>
+        </div>
+
+        {/* Create Offer Modal */}
+        <CreateOfferModal
+          isOpen={isCreateOfferModalOpen}
+          onClose={closeOfferModal}
+          offer={editingOffer}
+          onSuccess={() => setRefreshOffersTrigger((prev) => prev + 1)}
+        />
       </div>
-
-      {/* Create Offer Modal */}
-      <CreateOfferModal
-        isOpen={isCreateOfferModalOpen}
-        onClose={closeOfferModal}
-        offer={editingOffer}
-        onSuccess={() => setRefreshOffersTrigger((prev) => prev + 1)}
-      />
-    </div>
+    </LanguageProvider>
   );
 }

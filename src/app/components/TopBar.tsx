@@ -1,88 +1,118 @@
-import { motion } from 'motion/react';
-import { Menu, Notifications } from '@mui/icons-material';
+import { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Menu, Language as LanguageIcon, Check } from '@mui/icons-material';
+import { useLanguage } from '../context/LanguageContext';
+import { Language } from '../i18n/translations';
 
 interface TopBarProps {
   onMenuToggle: () => void;
   activeTab: string;
 }
 
-const tabTitles: Record<string, { title: string; subtitle: string }> = {
-  overview: { title: 'Dashboard Overview', subtitle: 'Welcome back!' },
-  offers: { title: 'My Offers', subtitle: 'Manage your travel packages' },
-  bookings: { title: 'Bookings', subtitle: 'Track customer reservations' },
-  analytics: { title: 'Analytics', subtitle: 'Performance insights' },
-  admins: { title: 'Platform Management', subtitle: 'Review agencies and global offers' },
-  settings: { title: 'Settings', subtitle: 'Manage your preferences' },
-};
+const languageOptions: { code: Language; label: string; flag: string }[] = [
+  { code: 'en', label: 'English', flag: '🇬🇧' },
+  { code: 'fr', label: 'Français', flag: '🇫🇷' },
+  { code: 'ar', label: 'العربية', flag: '🇩🇿' },
+];
 
 export function TopBar({ onMenuToggle, activeTab }: TopBarProps) {
-  const { title, subtitle } = tabTitles[activeTab] || tabTitles.overview;
+  const { t, language, setLanguage, isRTL } = useLanguage();
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const { title, subtitle } = t.topbar[activeTab as keyof typeof t.topbar] || t.topbar.overview;
 
   // Read stored user to display role
   const storedUser = (() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   })();
   const role: string = storedUser?.role || 'unknown';
-  const isAdmin = role === 'admin' || role === 'superadmin';
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setLangMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const currentLang = languageOptions.find(l => l.code === language)!;
 
   return (
-    <>
-      {/* Role warning banner — shown when account is not admin */}
-      {!isAdmin && (
-        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center gap-2 text-amber-800 text-sm">
-          <span className="font-bold">⚠️ Limited Access:</span>
-          <span>
-            Your account role is <strong className="font-mono">"{role}"</strong>.
-            Creating or editing offers requires <strong>Admin</strong> role.
-            Please contact your <strong>Super Admin</strong> to request access.
+    <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200/50 px-6 py-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        {/* Left Section */}
+        <div className={`flex items-center gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onMenuToggle}
+            className="lg:hidden p-2 hover:bg-gray-100 rounded-xl transition-colors"
+          >
+            <Menu className="text-gray-700" />
+          </motion.button>
+
+          <div className={isRTL ? 'text-right' : 'text-left'}>
+            <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>
+          </div>
+        </div>
+
+        {/* Right Section */}
+        <div className={`flex items-center gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
+          {/* Role Badge */}
+          <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase border bg-blue-100 text-blue-700 border-blue-200">
+            {role.charAt(0).toUpperCase() + role.slice(1)}
           </span>
-        </div>
-      )}
 
-      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200/50 px-6 py-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          {/* Left Section */}
-          <div className="flex items-center gap-4">
+          {/* Language Toggle */}
+          <div className="relative" ref={menuRef}>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={onMenuToggle}
-              className="lg:hidden p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              onClick={() => setLangMenuOpen(prev => !prev)}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors text-sm font-medium text-gray-700"
             >
-              <Menu className="text-gray-700" />
+              <LanguageIcon fontSize="small" className="text-blue-600" />
+              <span className="hidden sm:inline">{currentLang.flag} {currentLang.label}</span>
+              <span className="sm:hidden">{currentLang.flag}</span>
             </motion.button>
 
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
-              <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>
-            </div>
-          </div>
-
-          {/* Right Section */}
-          <div className="flex items-center gap-4">
-            {/* Role Badge */}
-            <span
-              className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase border ${
-                isAdmin
-                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                  : 'bg-red-100 text-red-700 border-red-200'
-              }`}
-            >
-              {isAdmin ? '✓ Admin' : `✗ ${role}`}
-            </span>
-
-            {/* Notifications */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="relative p-2 hover:bg-gray-100 rounded-xl transition-colors"
-            >
-              <Notifications className="text-gray-700 text-2xl" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </motion.button>
+            <AnimatePresence>
+              {langMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                  transition={{ duration: 0.15 }}
+                  className={`absolute top-full mt-2 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 ${isRTL ? 'left-0' : 'right-0'}`}
+                >
+                  {languageOptions.map(option => (
+                    <button
+                      key={option.code}
+                      onClick={() => { setLanguage(option.code); setLangMenuOpen(false); }}
+                      className={`w-full flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+                        language === option.code
+                          ? 'text-blue-600 bg-blue-50'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      } ${isRTL ? 'flex-row-reverse text-right' : 'text-left'}`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span>{option.flag}</span>
+                        <span>{option.label}</span>
+                      </span>
+                      {language === option.code && <Check fontSize="small" className="text-blue-600" />}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
-      </header>
-    </>
+      </div>
+    </header>
   );
 }

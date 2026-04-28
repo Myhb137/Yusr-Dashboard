@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { PersonAdd, Email, Lock, Badge, Delete, Edit, Inventory2, Business, Search, CheckCircle, Cancel } from '@mui/icons-material';
 import { adminService } from '../services/adminService';
 import { offerService } from '../services/offerService';
 import api from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 
 export function AdminManagement() {
+  const { t, isRTL } = useLanguage();
   const [activeTab, setActiveTab] = useState<'agencies' | 'offers'>('agencies');
-  
+
+
   // Agencies State
   const [admins, setAdmins] = useState<any[]>([]);
   const [isLoadingAdmins, setIsLoadingAdmins] = useState(false);
@@ -21,8 +24,6 @@ export function AdminManagement() {
     phone: '',
     email: '',
     password: '',
-    gender: 'male',
-    role: 'admin'
   });
 
   // Offers State
@@ -30,37 +31,37 @@ export function AdminManagement() {
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [offersSearchQuery, setOffersSearchQuery] = useState('');
 
+  const fetchAdmins = useCallback(async () => {
+    setIsLoadingAdmins(true);
+    try {
+      const data = await adminService.getAllUsers();
+      setAdmins(data?.users || data?.data?.users || data?.data || data || []);
+    } catch (err: any) {
+      console.error('Failed to fetch admins:', err);
+    } finally {
+      setIsLoadingAdmins(false);
+    }
+  }, []);
+
+  const fetchOffers = useCallback(async () => {
+    setIsLoadingOffers(true);
+    try {
+      const data = await offerService.getAllOffers();
+      setOffers(Array.isArray(data) ? data : (data?.offers || data?.data?.offers || data?.data || []));
+    } catch (err: any) {
+      console.error('Failed to fetch offers:', err);
+    } finally {
+      setIsLoadingOffers(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'agencies') {
       fetchAdmins();
     } else {
       fetchOffers();
     }
-  }, [activeTab]);
-
-  const fetchAdmins = async () => {
-    setIsLoadingAdmins(true);
-    try {
-      const data = await adminService.getAllUsers();
-      setAdmins(data.users || data || []);
-    } catch (err: any) {
-      console.error('Failed to fetch admins:', err);
-    } finally {
-      setIsLoadingAdmins(false);
-    }
-  };
-
-  const fetchOffers = async () => {
-    setIsLoadingOffers(true);
-    try {
-      const data = await offerService.getAllOffers();
-      setOffers(Array.isArray(data) ? data : (data?.offers || []));
-    } catch (err: any) {
-      console.error('Failed to fetch offers:', err);
-    } finally {
-      setIsLoadingOffers(false);
-    }
-  };
+  }, [activeTab, fetchAdmins, fetchOffers]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -73,35 +74,38 @@ export function AdminManagement() {
     setSuccess(null);
 
     try {
-      await api.post('/api/v1/auth/signup', {
+      // Create user via signup endpoint — gender always 'male', role always 'user' (backend validation requires this)
+      const signupRes = await api.post('/api/v1/auth/signup', {
         email: formData.email,
         password: formData.password,
         firstName: formData.firstName,
         lastName: formData.lastName,
         phone: formData.phone,
-        gender: formData.gender,
-        role: formData.role
+        gender: 'male',
+        role: 'user',
       });
-      setSuccess('Admin successfully created!');
-      setFormData({ firstName: '', lastName: '', phone: '', email: '', password: '', gender: 'male', role: 'admin' });
+
+      // Extract new user ID from response and promote to 'admin'
+      const newUser = signupRes.data?.user || signupRes.data?.data || signupRes.data;
+      const newUserId = newUser?._id || newUser?.id;
+
+      if (newUserId) {
+        await adminService.updateUserRole(String(newUserId), 'admin');
+      }
+
+      setSuccess(t.admins.adminCreated);
+      setFormData({ firstName: '', lastName: '', phone: '', email: '', password: '' });
       fetchAdmins();
     } catch (err: any) {
-      console.error('Failed to create admin:', err);
-      let errorMsg = 'Failed to create admin. Check console for details.';
-      if (err.response?.data?.error?.code === 'user_already_exists') {
-        errorMsg = 'This email is already registered! Please use a different email address.';
-      } else if (err.response?.data?.detail) {
-        if (Array.isArray(err.response.data.detail)) {
-          errorMsg = err.response.data.detail.map((e: any) => `${e.loc?.join('.') || 'Field'}: ${e.msg}`).join(' | ');
-        } else {
-          errorMsg = typeof err.response.data.detail === 'string' ? err.response.data.detail : JSON.stringify(err.response.data.detail);
-        }
-      } else if (err.response?.data?.message) {
-        errorMsg = err.response.data.message;
-        if (err.response.data.error?.message) {
-          errorMsg += `: ${err.response.data.error.message}`;
-        }
-      }
+      const apiError = err.response?.data;
+      const errorCode = apiError?.error?.code;
+      
+      const errorMsg =
+        errorCode === 'user_already_exists'
+          ? t.admins.userAlreadyExists
+          : (Array.isArray(apiError?.data) ? apiError.data.map((d: any) => d.message).join(', ') : null) ||
+            apiError?.message ||
+            t.admins.failedToCreate;
       setError(errorMsg);
     } finally {
       setIsSubmitting(false);
@@ -130,18 +134,20 @@ export function AdminManagement() {
     }
   };
 
-  const filteredOffers = offers.filter((offer) =>
-    (offer.title || offer.name || '').toLowerCase().includes(offersSearchQuery.toLowerCase()) ||
-    (offer.location || offer.destination || '').toLowerCase().includes(offersSearchQuery.toLowerCase())
-  );
+  const filteredOffers = useMemo(() => {
+    return offers.filter((offer) =>
+      (offer.title || offer.name || '').toLowerCase().includes(offersSearchQuery.toLowerCase()) ||
+      (offer.location || offer.destination || '').toLowerCase().includes(offersSearchQuery.toLowerCase())
+    );
+  }, [offers, offersSearchQuery]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100 gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Platform Management</h2>
-          <p className="text-sm text-gray-500 mt-1">Super Admin tools to review agencies and manage offers</p>
+      <div className={`flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100 gap-4 ${isRTL ? 'md:flex-row-reverse' : ''}`}>
+        <div className={isRTL ? 'text-right' : 'text-left'}>
+          <h2 className="text-2xl font-bold text-gray-900">{t.admins.title}</h2>
+          <p className="text-sm text-gray-500 mt-1">{t.admins.subtitle}</p>
         </div>
         <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl">
           <button
@@ -151,7 +157,7 @@ export function AdminManagement() {
             }`}
           >
             <Business className="text-lg" />
-            Agencies
+            {t.admins.agencies}
           </button>
           <button
             onClick={() => setActiveTab('offers')}
@@ -160,7 +166,7 @@ export function AdminManagement() {
             }`}
           >
             <Inventory2 className="text-lg" />
-            Offers Review
+            {t.admins.allOffers}
           </button>
         </div>
       </div>
@@ -169,11 +175,11 @@ export function AdminManagement() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Create Admin Form */}
           <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+            <div className={`flex items-center gap-3 mb-6 ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center shrink-0">
                 <PersonAdd className="text-indigo-600" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900">Create Agency Admin</h3>
+              <h3 className="text-lg font-bold text-gray-900">{t.admins.createAdmin}</h3>
             </div>
 
             {error && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-xl">{error}</div>}
@@ -181,148 +187,83 @@ export function AdminManagement() {
 
             <form onSubmit={handleCreateAdmin} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-                  <div className="relative">
-                    <Badge className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-                    <input
-                      type="text"
-                      name="firstName"
-                      required
-                      value={formData.firstName}
-                      onChange={handleInputChange}
-                      className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                      placeholder="John"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                  <input
-                    type="text"
-                    name="lastName"
-                    required
-                    value={formData.lastName}
+              <div>
+                <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>{t.admins.firstName}</label>
+                <div className="relative">
+                  <Badge className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-sm ${isRTL ? 'right-3' : 'left-3'}`} />
+                  <input type="text" name="firstName" required value={formData.firstName}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                    placeholder="Doe"
-                  />
+                    className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm ${isRTL ? 'pr-9 pl-3 text-right' : 'pl-9 pr-3 text-left'}`}
+                    placeholder="John" />
                 </div>
+              </div>
+              <div>
+                <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>{t.admins.lastName}</label>
+                <input type="text" name="lastName" required value={formData.lastName}
+                  onChange={handleInputChange}
+                  className={`w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm ${isRTL ? 'text-right' : 'text-left'}`}
+                  placeholder="Doe" />
+              </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>{t.common.phone}</label>
                 <div className="relative">
-                  <Badge className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-                  <input
-                    type="tel"
-                    name="phone"
-                    required
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                    className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                    placeholder="+1234567890"
-                  />
+                  <Badge className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-sm ${isRTL ? 'right-3' : 'left-3'}`} />
+                  <input type="tel" name="phone" required value={formData.phone} onChange={handleInputChange}
+                    className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm ${isRTL ? 'pr-9 pl-3 text-right' : 'pl-9 pr-3 text-left'}`}
+                    placeholder="+1234567890" />
                 </div>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>{t.common.email}</label>
                 <div className="relative">
-                  <Email className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-                  <input
-                    type="email"
-                    name="email"
-                    required
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                    placeholder="admin@agency.com"
-                  />
+                  <Email className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-sm ${isRTL ? 'right-3' : 'left-3'}`} />
+                  <input type="email" name="email" required value={formData.email} onChange={handleInputChange}
+                    className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm ${isRTL ? 'pr-9 pl-3 text-right' : 'pl-9 pr-3 text-left'}`}
+                    placeholder="admin@agency.com" />
                 </div>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>{t.login.password}</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-                  <input
-                    type="password"
-                    name="password"
-                    required
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                    placeholder="••••••••"
-                  />
+                  <Lock className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-sm ${isRTL ? 'right-3' : 'left-3'}`} />
+                  <input type="password" name="password" required value={formData.password} onChange={handleInputChange}
+                    className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm ${isRTL ? 'pr-9 pl-3' : 'pl-9 pr-3'}`}
+                    placeholder="••••••••" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
-                  <select
-                    name="gender"
-                    value={formData.gender}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                  >
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                  <select
-                    name="role"
-                    value={formData.role}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                  >
-                    <option value="admin">Agency Admin</option>
-                    <option value="superadmin">Super Admin</option>
-                  </select>
-                </div>
-              </div>
 
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={isSubmitting}
-                className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-              >
-                {isSubmitting ? 'Creating...' : 'Create Admin'}
+              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} disabled={isSubmitting}
+                className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all disabled:opacity-50">
+                {isSubmitting ? t.common.creating : t.admins.createButton}
               </motion.button>
             </form>
           </div>
 
           {/* Existing Admins List */}
           <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Agencies & Admins</h3>
-            
+            <h3 className="text-lg font-bold text-gray-900 mb-4">{t.admins.agencies}</h3>
             {isLoadingAdmins ? (
               <div className="flex justify-center p-8">
                 <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm whitespace-nowrap">
+                <table className={`w-full text-sm whitespace-nowrap ${isRTL ? 'text-right' : 'text-left'}`}>
                   <thead>
                     <tr className="border-b border-gray-100 pb-3 text-gray-500 font-medium">
-                      <th className="py-3 px-4">Name</th>
-                      <th className="py-3 px-4">Email</th>
-                      <th className="py-3 px-4">Role</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
+                      <th className="py-3 px-4">{t.common.name}</th>
+                      <th className="py-3 px-4">{t.common.email}</th>
+                      <th className="py-3 px-4">{t.common.role}</th>
+                      <th className="py-3 px-4">{t.common.status}</th>
+                      <th className={`py-3 px-4 ${isRTL ? 'text-left' : 'text-right'}`}>{t.common.actions}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {admins.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="py-6 text-center text-gray-500">
-                          No users found
-                        </td>
-                      </tr>
+                      <tr><td colSpan={5} className="py-6 text-center text-gray-500">{t.admins.noAdmins}</td></tr>
                     ) : (
                       admins.map((admin: any) => (
                         <tr key={admin._id || admin.id} className="hover:bg-gray-50/50 transition-colors">
@@ -345,7 +286,7 @@ export function AdminManagement() {
                               }`}
                             >
                               {admin.status !== 'inactive' ? <CheckCircle className="text-[14px]" /> : <Cancel className="text-[14px]"/>}
-                              {admin.status !== 'inactive' ? 'Active' : 'Inactive'}
+                              {admin.status !== 'inactive' ? t.common.active : t.common.inactive}
                             </button>
                           </td>
                           <td className="py-3 px-4 text-right">
@@ -366,17 +307,13 @@ export function AdminManagement() {
 
       {activeTab === 'offers' && (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
-            <h3 className="text-lg font-bold text-gray-900">Global Offers Review</h3>
+          <div className={`flex flex-col md:flex-row items-center justify-between gap-4 mb-6 ${isRTL ? 'md:flex-row-reverse' : ''}`}>
+            <h3 className="text-lg font-bold text-gray-900">{t.admins.allOffers}</h3>
             <div className="relative w-full md:w-auto">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xl" />
-              <input
-                type="text"
-                placeholder="Search offers..."
-                value={offersSearchQuery}
-                onChange={(e) => setOffersSearchQuery(e.target.value)}
-                className="w-full md:w-80 pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm"
-              />
+              <Search className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-xl ${isRTL ? 'right-3' : 'left-3'}`} />
+              <input type="text" placeholder={t.admins.searchOffers}
+                value={offersSearchQuery} onChange={(e) => setOffersSearchQuery(e.target.value)}
+                className={`w-full md:w-80 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm ${isRTL ? 'pr-10 pl-4 text-right' : 'pl-10 pr-4 text-left'}`} />
             </div>
           </div>
 
@@ -386,23 +323,19 @@ export function AdminManagement() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead>
-                  <tr className="border-b border-gray-100 pb-3 text-gray-500 font-medium bg-gray-50/50">
-                    <th className="py-3 px-4">Offer Name</th>
-                    <th className="py-3 px-4">Destination</th>
-                    <th className="py-3 px-4">Price</th>
-                    <th className="py-3 px-4">Agency / Creator</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
+              <table className={`w-full text-sm whitespace-nowrap ${isRTL ? 'text-right' : 'text-left'}`}>
+                  <thead>
+                    <tr className="border-b border-gray-100 pb-3 text-gray-500 font-medium bg-gray-50/50">
+                      <th className="py-3 px-4">{t.common.name}</th>
+                      <th className="py-3 px-4">{t.offers.destination}</th>
+                      <th className="py-3 px-4">{t.offers.price}</th>
+                      <th className="py-3 px-4">{t.admins.agencies}</th>
+                      <th className={`py-3 px-4 ${isRTL ? 'text-left' : 'text-right'}`}>{t.common.actions}</th>
+                    </tr>
+                  </thead>
                 <tbody className="divide-y divide-gray-50">
                   {filteredOffers.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-8 text-center text-gray-500">
-                        No offers match your search criteria.
-                      </td>
-                    </tr>
+                    <tr><td colSpan={5} className="py-8 text-center text-gray-500">{t.admins.noOffers}</td></tr>
                   ) : (
                     filteredOffers.map((offer) => (
                       <tr key={offer.id || offer._id} className="hover:bg-gray-50 transition-colors">

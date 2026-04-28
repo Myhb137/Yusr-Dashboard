@@ -8,12 +8,10 @@ import {
   ArrowDownward,
 } from '@mui/icons-material';
 import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   PieChart,
   Pie,
   Cell,
@@ -27,17 +25,144 @@ import {
 
 import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
+import { bookingService } from '../services/bookingService';
+import { offerService } from '../services/offerService';
+import { authService } from '../services/authService';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const PIE_COLORS = ['#0046A8', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
 
 export function Analytics() {
   const [stats, setStats] = useState<any>(null);
+  const [revenueData, setRevenueData] = useState<any[]>([]);
+  const [categoryData, setCategoryData] = useState<any[]>([]);
+  const [topDestinationsData, setTopDestinationsData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
         setIsLoading(true);
-        const data = await adminService.getStats();
-        setStats(data);
+
+        const user = authService.getStoredUser();
+        const currentUserId = user?._id || user?.id;
+        const currentRole = String(
+          user?.role || user?.user_metadata?.role || user?.app_metadata?.role || ''
+        ).toLowerCase().replace(/[_ ]/g, '');
+
+        // Helper: extract ID
+        const extractId = (obj: any, ...keys: string[]): string | null => {
+          if (!obj) return null;
+          for (const key of keys) {
+            const val = obj[key];
+            if (!val) continue;
+            if (typeof val === 'string' && val.length > 0) return val;
+            const id = val?._id || val?.id;
+            if (id) return String(id);
+          }
+          return null;
+        };
+
+        // Fetch all bookings and offers to compute multi-tenant stats
+        const [bookingsRes, offersRes] = await Promise.allSettled([
+          bookingService.getAllBookings(),
+          offerService.getAllOffers(),
+        ]);
+
+        let bookingsArray: any[] = [];
+        let offersArray: any[] = [];
+
+        if (bookingsRes.status === 'fulfilled') {
+          const raw = bookingsRes.value;
+          bookingsArray = Array.isArray(raw) ? raw : (raw?.bookings || raw?.data || []);
+        }
+        if (offersRes.status === 'fulfilled') {
+          const raw = offersRes.value;
+          offersArray = Array.isArray(raw) ? raw : (raw?.offers || raw?.data || []);
+        }
+
+        // --- Filter for Admin Multi-tenancy ---
+        if (currentRole !== 'superadmin' && currentUserId) {
+          // 1. Filter my offers
+          const myOffers = offersArray.filter((o: any) => {
+            const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
+            const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
+            return String(ownerIdStr) === String(currentUserId);
+          });
+          const myOfferIds = myOffers.map((o: any) => String(o.id || o._id));
+          offersArray = myOffers;
+
+          // 2. Filter bookings for my offers
+          bookingsArray = bookingsArray.filter((b: any) => {
+            const oid = extractId(b, 'offer_id', 'offerId', 'offer');
+            return oid && myOfferIds.includes(oid);
+          });
+        }
+
+        // --- Calculate Stats Cards ---
+        const totalRevenue = bookingsArray.reduce((acc, b) => acc + Number(b.total_price || b.totalAmount || b.amount || 0), 0);
+        const uniqueCustomers = new Set(bookingsArray.map(b => extractId(b, 'user_id', 'userId', 'user'))).size;
+        
+        setStats({
+          revenue: totalRevenue,
+          bookings: bookingsArray.length,
+          customers: uniqueCustomers,
+          activeOffers: offersArray.filter(o => o.available === true || o.status === 'active').length,
+        });
+
+        // --- Build chart data from bookings ---
+        const currentYear = new Date().getFullYear();
+        const monthlyMap: Record<number, { revenue: number; bookings: number }> = {};
+        for (let i = 0; i < 12; i++) monthlyMap[i] = { revenue: 0, bookings: 0 };
+
+        bookingsArray.forEach((b: any) => {
+          const dateStr = b.created_at || b.createdAt || b.startDate || b.start_date || b.booking_date;
+          if (!dateStr) return;
+          const d = new Date(dateStr);
+          if (d.getFullYear() !== currentYear) return;
+          const m = d.getMonth();
+          monthlyMap[m].bookings += 1;
+          monthlyMap[m].revenue += Number(b.total_price || b.totalAmount || b.amount || 0);
+        });
+
+        setRevenueData(
+          MONTHS.map((month, i) => ({
+            month,
+            bookings: monthlyMap[i].bookings,
+            revenue: monthlyMap[i].revenue,
+          }))
+        );
+
+        // --- Category distribution ---
+        const typeCounts: Record<string, number> = {};
+        bookingsArray.forEach((b: any) => {
+          const type = (typeof b.offer === 'object' ? b.offer?.type : null) || b.offerType || b.offer_type || 'standard';
+          const t = String(type).toLowerCase();
+          typeCounts[t] = (typeCounts[t] || 0) + 1;
+        });
+
+        setCategoryData(
+          Object.entries(typeCounts).map(([name, value], i) => ({
+            name: name.charAt(0).toUpperCase() + name.slice(1),
+            value,
+            color: PIE_COLORS[i % PIE_COLORS.length],
+          }))
+        );
+
+        // --- Top Destinations ---
+        const destCounts: Record<string, number> = {};
+        bookingsArray.forEach((b: any) => {
+          const dest = (typeof b.offer === 'object' ? b.offer?.location : null) || b.location || b.destination || 'Other';
+          destCounts[dest] = (destCounts[dest] || 0) + 1;
+        });
+
+        setTopDestinationsData(
+          Object.entries(destCounts)
+            .map(([destination, bookings]) => ({ destination, bookings }))
+            .sort((a, b) => b.bookings - a.bookings)
+            .slice(0, 5)
+        );
+
       } catch (err) {
         console.error('Failed to fetch analytics:', err);
       } finally {
@@ -47,18 +172,16 @@ export function Analytics() {
     fetchAnalytics();
   }, []);
 
-  const revenueData = stats?.revenueDistribution || [];
-
-  const categoryData = stats?.categoryDistribution || [];
-
-  const topDestinationsData = stats?.topDestinations || [];
+  const totalRevenue = revenueData.reduce((sum: number, m: any) => sum + (m.revenue || 0), 0);
+  const totalBookings = revenueData.reduce((sum: number, m: any) => sum + (m.bookings || 0), 0);
+  const avgBookingValue = totalBookings > 0 ? Math.round(totalRevenue / totalBookings) : 0;
 
   const performanceMetrics = [
     {
       id: 1,
       title: 'Total Revenue',
-      value: stats?.totalRevenue !== undefined ? `${stats.totalRevenue.toLocaleString()} DZD` : '0 DZD',
-      change: stats?.revenueChange || '0%',
+      value: (stats?.totalRevenue !== undefined ? stats.totalRevenue : totalRevenue).toLocaleString() + ' DZD',
+      change: stats?.revenueChange || '+0%',
       trend: (stats?.revenueChange || '').startsWith('-') ? 'down' : 'up',
       icon: AttachMoney,
       gradient: 'from-emerald-500 to-teal-600',
@@ -66,8 +189,8 @@ export function Analytics() {
     {
       id: 2,
       title: 'Total Bookings',
-      value: stats?.totalBookings?.toLocaleString() || '0',
-      change: stats?.bookingsChange || '0%',
+      value: (stats?.totalBookings ?? totalBookings).toLocaleString(),
+      change: stats?.bookingsChange || '+0%',
       trend: (stats?.bookingsChange || '').startsWith('-') ? 'down' : 'up',
       icon: People,
       gradient: 'from-blue-600 to-indigo-600',
@@ -75,8 +198,8 @@ export function Analytics() {
     {
       id: 3,
       title: 'Active Offers',
-      value: stats?.activeOffers?.toString() || '0',
-      change: stats?.offersChange || '0',
+      value: (stats?.activeOffers ?? 0).toString(),
+      change: stats?.offersChange || '+0',
       trend: (stats?.offersChange || '').startsWith('-') ? 'down' : 'up',
       icon: Inventory2,
       gradient: 'from-purple-500 to-pink-600',
@@ -84,8 +207,8 @@ export function Analytics() {
     {
       id: 4,
       title: 'Avg Booking Value',
-      value: stats?.avgBookingValue !== undefined ? `${stats.avgBookingValue.toLocaleString()} DZD` : '0 DZD',
-      change: stats?.avgValueChange || '0%',
+      value: (stats?.avgBookingValue !== undefined ? stats.avgBookingValue : avgBookingValue).toLocaleString() + ' DZD',
+      change: stats?.avgValueChange || '+0%',
       trend: (stats?.avgValueChange || '').startsWith('-') ? 'down' : 'up',
       icon: TrendingUp,
       gradient: 'from-orange-400 to-red-500',

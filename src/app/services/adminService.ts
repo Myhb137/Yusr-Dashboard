@@ -25,7 +25,7 @@ export const adminService = {
   },
 
   updateUserStatus: async (id: string, status: string) => {
-    const response = await api.patch(`${ADMIN_USERS_ENDPOINT}/${id}`, { status });
+    const response = await api.patch(`${ADMIN_USERS_ENDPOINT}/${id}/status`, { status });
     return response.data;
   },
 

@@ -5,13 +5,19 @@ const AUTH_ENDPOINT = import.meta.env.VITE_API_AUTH_ENDPOINT || '/api/v1/auth';
 export const authService = {
   login: async (credentials: any) => {
     const response = await api.post(`${AUTH_ENDPOINT}/login`, credentials);
-    if (response.data.token) {
-      localStorage.setItem('token', response.data.token);
+    const data = response.data;
+
+    // Save token
+    if (data.token) {
+      localStorage.setItem('token', data.token);
     }
-    if (response.data.user) {
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-    }
-    return response.data;
+
+    // Save user (merge top-level role into user object if needed)
+    const user = data.user || {};
+    if (data.role && !user.role) user.role = data.role;
+    localStorage.setItem('user', JSON.stringify(user));
+
+    return data;
   },
 
   getStoredUser: () => {

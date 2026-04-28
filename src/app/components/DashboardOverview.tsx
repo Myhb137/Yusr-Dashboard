@@ -3,26 +3,20 @@ import { RecentBookings } from './RecentBookings';
 import { TopOffers } from './TopOffers';
 import { QuickActions } from './QuickActions';
 import { AttachMoney, Inventory2, People, Pending } from '@mui/icons-material';
-
-interface Stat {
-  id: number;
-  title: string;
-  value: string;
-  change: string;
-  trend: 'up' | 'down';
-  icon: React.ComponentType<{ className?: string }>;
-  gradientFrom: string;
-  gradientTo: string;
-  bgGradient: string;
-}
-
 import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
+import { authService } from '../services/authService';
+import { bookingService } from '../services/bookingService';
+import { offerService } from '../services/offerService';
+import { useLanguage } from '../context/LanguageContext';
+
+
 interface DashboardOverviewProps {
   onCreateOffer: () => void;
 }
 
 export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
+  const { t } = useLanguage();
   const [statsData, setStatsData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -30,8 +24,61 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
     const fetchStats = async () => {
       try {
         setIsLoading(true);
-        const data = await adminService.getStats();
-        setStatsData(data);
+
+        const user = authService.getStoredUser();
+        const currentUserId = user?._id || user?.id;
+        const currentRole = String(
+          user?.role || user?.user_metadata?.role || user?.app_metadata?.role || ''
+        ).toLowerCase().replace(/[_ ]/g, '');
+
+        if (currentRole !== 'superadmin' && currentUserId) {
+          // Admin Multi-tenancy: Aggregate only their data
+          const [bookingsRes, offersRes] = await Promise.allSettled([
+            bookingService.getAllBookings(),
+            offerService.getAllOffers(),
+          ]);
+
+          let bookingsArray: any[] = [];
+          let offersArray: any[] = [];
+
+          if (bookingsRes.status === 'fulfilled') {
+            const raw = bookingsRes.value;
+            bookingsArray = Array.isArray(raw) ? raw : (raw?.bookings || raw?.data || []);
+          }
+          if (offersRes.status === 'fulfilled') {
+            const raw = offersRes.value;
+            offersArray = Array.isArray(raw) ? raw : (raw?.offers || raw?.data || []);
+          }
+
+          // Filter my offers
+          const myOffers = offersArray.filter((o: any) => {
+            const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
+            const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
+            return String(ownerIdStr) === String(currentUserId);
+          });
+          const myOfferIds = myOffers.map((o: any) => String(o.id || o._id));
+
+          // Filter bookings for my offers
+          const myBookings = bookingsArray.filter((b: any) => {
+            const oid = b.offer_id || b.offerId || (typeof b.offer === 'object' ? b.offer.id || b.offer._id : null);
+            return oid && myOfferIds.includes(String(oid));
+          });
+
+          setStatsData({
+            totalRevenue: myBookings.reduce((acc, b) => acc + Number(b.total_price || b.totalAmount || b.amount || 0), 0),
+            activeOffers: myOffers.filter(o => o.available === true || o.status === 'active').length,
+            totalBookings: myBookings.length,
+            pendingReviews: 0,
+            revenueChange: '+0%',
+            offersChange: '0',
+            bookingsChange: '+0%',
+            reviewsChange: '0',
+          });
+        } else {
+          // Superadmin: Global stats
+          const data = await adminService.getStats();
+          setStatsData(data);
+        }
       } catch (err) {
         console.error('Failed to fetch dashboard stats:', err);
       } finally {
@@ -41,10 +88,10 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
     fetchStats();
   }, []);
 
-  const stats: Stat[] = [
+  const stats = [
     {
       id: 1,
-      title: 'Total Revenue',
+      title: t.overview.totalRevenue,
       value: statsData?.totalRevenue !== undefined ? `${statsData.totalRevenue.toLocaleString()} DZD` : '0 DZD',
       change: statsData?.revenueChange || '0%',
       trend: (statsData?.revenueChange || '').startsWith('-') ? 'down' : 'up',
@@ -55,7 +102,7 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
     },
     {
       id: 2,
-      title: 'Active Offers',
+      title: t.overview.activeOffers,
       value: statsData?.activeOffers?.toString() || '0',
       change: statsData?.offersChange || '0',
       trend: (statsData?.offersChange || '').startsWith('-') ? 'down' : 'up',
@@ -66,7 +113,7 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
     },
     {
       id: 3,
-      title: 'Total Bookings',
+      title: t.overview.totalBookings,
       value: statsData?.totalBookings?.toLocaleString() || '0',
       change: statsData?.bookingsChange || '0%',
       trend: (statsData?.bookingsChange || '').startsWith('-') ? 'down' : 'up',
@@ -77,7 +124,7 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
     },
     {
       id: 4,
-      title: 'Pending Reviews',
+      title: t.overview.totalUsers,
       value: statsData?.pendingReviews?.toString() || '0',
       change: statsData?.reviewsChange || '0',
       trend: (statsData?.reviewsChange || '').startsWith('+') ? 'up' : 'down',

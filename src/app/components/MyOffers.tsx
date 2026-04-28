@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   GridView,
   ViewList,
@@ -10,10 +10,12 @@ import {
   CheckCircle,
   Pause,
   Drafts,
+  DeleteOutline,
+  WarningAmberRounded,
 } from '@mui/icons-material';
 import { OfferCard } from './OfferCard';
 import { offerService } from '../services/offerService';
-import api from '../services/api';
+import { authService } from '../services/authService';
 
 interface Offer {
   id: number;
@@ -43,15 +45,39 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'draft' | 'paused'>('all');
 
+  // Delete confirmation modal state
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; offer: Offer | null; isDeleting: boolean }>({
+    open: false,
+    offer: null,
+    isDeleting: false,
+  });
+
   useEffect(() => {
     const fetchOffers = async () => {
       try {
         setIsLoading(true);
+        
+        // 1. Get current user info
+        const user = authService.getStoredUser();
+        const currentUserId = user?._id || user?.id;
+        const currentRole = String(
+          user?.role || user?.user_metadata?.role || user?.app_metadata?.role || ''
+        ).toLowerCase().replace(/[_ ]/g, '');
+
+        // 2. Fetch all offers
         const data = await offerService.getAllOffers();
+        let offersArray = Array.isArray(data) ? data : (data?.offers || data?.data?.offers || data?.data || []);
         
-        // Handle potential different response structures (e.g., data.offers vs data)
-        const offersArray = Array.isArray(data) ? data : (data?.offers || []);
-        
+        // 3. Filter if not superadmin
+        if (currentRole !== 'superadmin' && currentUserId) {
+          offersArray = offersArray.filter((o: any) => {
+            const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
+            // Handle case where ownerId might be an object or a string
+            const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
+            return String(ownerIdStr) === String(currentUserId);
+          });
+        }
+
         const mappedOffers = offersArray.map((offer: any) => ({
           ...offer,
           id: offer.id || offer._id,
@@ -65,7 +91,6 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
           status: offer.available === true ? 'active' : (offer.available === false ? 'paused' : (offer.status || 'draft')),
           category: offer.type || offer.category || 'Standard',
         }));
-        
         setOffers(mappedOffers);
       } catch (err: any) {
         console.error('Failed to fetch offers:', err);
@@ -74,38 +99,132 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
         setIsLoading(false);
       }
     };
-
     fetchOffers();
   }, [refreshTrigger]);
 
-  const handleDeleteOffer = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this offer?')) return;
+  const handleDeleteClick = useCallback((offer: Offer) => {
+    setDeleteModal({ open: true, offer, isDeleting: false });
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteModal.offer) return;
+    setDeleteModal(prev => ({ ...prev, isDeleting: true }));
     try {
-      await offerService.deleteOffer(id.toString());
-      setOffers(prevOffers => prevOffers.filter(offer => offer.id !== id));
+      await offerService.deleteOffer(deleteModal.offer.id.toString());
+      setOffers(prev => prev.filter(o => o.id !== deleteModal.offer!.id));
+      setDeleteModal({ open: false, offer: null, isDeleting: false });
     } catch (err: any) {
       console.error('Failed to delete offer:', err);
-      alert(err.response?.data?.message || 'Failed to delete the offer.');
+      setDeleteModal(prev => ({ ...prev, isDeleting: false }));
+      setError(err.response?.data?.message || 'Failed to delete the offer.');
     }
-  };
+  }, [deleteModal.offer]);
 
-  const filteredOffers = offers.filter((offer) => {
-    const matchesSearch =
-      offer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      offer.destination.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = selectedStatus === 'all' || offer.status === selectedStatus;
-    return matchesSearch && matchesStatus;
-  });
+  const handleDeleteCancel = useCallback(() => {
+    if (!deleteModal.isDeleting) setDeleteModal({ open: false, offer: null, isDeleting: false });
+  }, [deleteModal.isDeleting]);
 
-  const stats = {
-    total: offers.length,
-    active: offers.filter((o) => o.status === 'active').length,
-    draft: offers.filter((o) => o.status === 'draft').length,
-    paused: offers.filter((o) => o.status === 'paused').length,
-  };
+  const filteredOffers = useMemo(() => {
+    return offers.filter((offer) => {
+      const matchesSearch =
+        offer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        offer.destination.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = selectedStatus === 'all' || offer.status === selectedStatus;
+      return matchesSearch && matchesStatus;
+    });
+  }, [offers, searchQuery, selectedStatus]);
+
+  const stats = useMemo(() => {
+    return {
+      total: offers.length,
+      active: offers.filter((o) => o.status === 'active').length,
+      draft: offers.filter((o) => o.status === 'draft').length,
+      paused: offers.filter((o) => o.status === 'paused').length,
+    };
+  }, [offers]);
 
   return (
     <div>
+      {/* ── Delete Confirmation Modal ── */}
+      <AnimatePresence>
+        {deleteModal.open && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={handleDeleteCancel}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+            />
+
+            {/* Dialog */}
+            <motion.div
+              key="dialog"
+              initial={{ opacity: 0, scale: 0.85, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            >
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 pointer-events-auto">
+                {/* Icon */}
+                <div className="flex justify-center mb-5">
+                  <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                    <WarningAmberRounded className="text-red-500" style={{ fontSize: 36 }} />
+                  </div>
+                </div>
+
+                {/* Text */}
+                <h2 className="text-xl font-bold text-gray-900 text-center mb-2">Delete Offer</h2>
+                <p className="text-gray-500 text-center mb-1">
+                  Are you sure you want to delete
+                </p>
+                <p className="text-center font-semibold text-gray-900 mb-6 truncate px-4">
+                  "{deleteModal.offer?.name}"?
+                </p>
+                <p className="text-sm text-red-500 text-center mb-8 bg-red-50 rounded-xl py-2 px-4">
+                  This action <strong>cannot be undone</strong>. All data for this offer will be permanently removed.
+                </p>
+
+                {/* Buttons */}
+                <div className="flex gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleDeleteCancel}
+                    disabled={deleteModal.isDeleting}
+                    className="flex-1 px-5 py-3 rounded-xl border-2 border-gray-200 text-gray-700 font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleDeleteConfirm}
+                    disabled={deleteModal.isDeleting}
+                    className="flex-1 px-5 py-3 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold shadow-lg shadow-red-500/30 hover:shadow-xl hover:shadow-red-500/40 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
+                  >
+                    {deleteModal.isDeleting ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <DeleteOutline className="text-xl" />
+                        Delete
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Stats Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <motion.div
@@ -183,7 +302,6 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
       {/* Toolbar */}
       <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-4 shadow-md mb-6">
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4">
-          {/* Search */}
           <div className="flex-1 relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -195,7 +313,6 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
             />
           </div>
 
-          {/* Filters */}
           <div className="flex items-center gap-2">
             <select
               value={selectedStatus}
@@ -218,17 +335,12 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
             </motion.button>
           </div>
 
-          {/* View Toggle */}
           <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl">
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-lg transition-all ${
-                viewMode === 'grid'
-                  ? 'bg-white text-blue-600 shadow-md'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-600 hover:text-gray-900'}`}
             >
               <GridView />
             </motion.button>
@@ -236,17 +348,12 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setViewMode('list')}
-              className={`p-2 rounded-lg transition-all ${
-                viewMode === 'list'
-                  ? 'bg-white text-blue-600 shadow-md'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-600 hover:text-gray-900'}`}
             >
               <ViewList />
             </motion.button>
           </div>
 
-          {/* New Offer Button */}
           <motion.button
             whileHover={{ scale: 1.05, y: -2 }}
             whileTap={{ scale: 0.98 }}
@@ -278,41 +385,31 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
             <Search className="text-gray-400 text-5xl" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">No offers found</h3>
-          <p className="text-gray-500 mb-6">
-            Try adjusting your search or filters to find what you're looking for
-          </p>
+          <p className="text-gray-500 mb-6">Try adjusting your search or filters to find what you're looking for</p>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => {
-              setSearchQuery('');
-              setSelectedStatus('all');
-            }}
+            onClick={() => { setSearchQuery(''); setSelectedStatus('all'); }}
             className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg font-medium"
           >
             Clear Filters
           </motion.button>
         </motion.div>
       ) : (
-        <div
-          className={
-            viewMode === 'grid'
-              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-              : 'space-y-4'
-          }
-        >
+        <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' : 'space-y-4'}>
           {filteredOffers.map((offer, index) => (
-            <OfferCard 
-              key={offer.id} 
-              offer={offer} 
-              index={index} 
-              viewMode={viewMode} 
+            <OfferCard
+              key={offer.id}
+              offer={offer}
+              index={index}
+              viewMode={viewMode}
               onEdit={() => onEditOffer(offer)}
-              onDelete={() => handleDeleteOffer(offer.id)}
+              onDelete={() => handleDeleteClick(offer)}
             />
           ))}
         </div>
       )}
     </div>
+
   );
 }
