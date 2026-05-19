@@ -1,10 +1,19 @@
 import api from './api';
+import {
+  AuthResponse,
+  ForgotPasswordRequest,
+  LoginRequest,
+  ResetPasswordRequest,
+  SignupRequest,
+  VerifyAdmin2FARequest,
+  VerifyAdminOtpRequest,
+} from '../types/api';
 
 const AUTH_ENDPOINT = import.meta.env.VITE_API_AUTH_ENDPOINT || '/api/v1/auth';
 
 export const authService = {
-  login: async (credentials: any) => {
-    const response = await api.post(`${AUTH_ENDPOINT}/login`, credentials);
+  login: async (credentials: LoginRequest): Promise<AuthResponse> => {
+    const response = await api.post<AuthResponse>(`${AUTH_ENDPOINT}/login`, credentials);
     const data = response.data;
 
     // Save token
@@ -14,7 +23,6 @@ export const authService = {
 
     // Save user (merge top-level role into user object if needed)
     const user = data.user || {};
-    if (data.role && !user.role) user.role = data.role;
     localStorage.setItem('user', JSON.stringify(user));
 
     return data;
@@ -34,12 +42,12 @@ export const authService = {
     return response.data;
   },
 
-  updateProfile: async (userData: any) => {
+  updateProfile: async (userData: { firstName?: string; lastName?: string; phone?: string }) => {
     const response = await api.put(`${AUTH_ENDPOINT}/user`, userData);
     return response.data;
   },
 
-  changePassword: async (passwordData: any) => {
+  changePassword: async (passwordData: { currentPassword: string; newPassword: string }) => {
     const response = await api.put(`${AUTH_ENDPOINT}/user/password`, passwordData);
     return response.data;
   },
@@ -50,8 +58,44 @@ export const authService = {
     localStorage.removeItem('user');
   },
 
-  forgotPassword: async (email: string) => {
-    const response = await api.post(`${AUTH_ENDPOINT}/forgot-password`, { email });
+  forgotPassword: async (payload: ForgotPasswordRequest) => {
+    const response = await api.post(`${AUTH_ENDPOINT}/forgot-password`, payload);
     return response.data;
+  },
+
+  resetPassword: async (resetData: ResetPasswordRequest) => {
+    const response = await api.post(`${AUTH_ENDPOINT}/reset-password`, resetData);
+    return response.data;
+  },
+
+  signup: async (userData: SignupRequest) => {
+    const response = await api.post(`${AUTH_ENDPOINT}/signup`, userData);
+    return response.data;
+  },
+
+  verifyAdmin2FA: async (payload: VerifyAdmin2FARequest) => {
+    const response = await api.post<AuthResponse>(`${AUTH_ENDPOINT}/login/verify-admin-2fa`, payload);
+    const data = response.data;
+
+    if (data.token) {
+      localStorage.setItem('token', data.token);
+    }
+    const user = data.user || {};
+    localStorage.setItem('user', JSON.stringify(user));
+
+    return data;
+  },
+
+  verifyAdminOtp: async (payload: VerifyAdminOtpRequest) => {
+    const response = await api.post<AuthResponse>(`${AUTH_ENDPOINT}/login/verify-admin-otp`, payload);
+    const data = response.data;
+
+    if (data.token) {
+      localStorage.setItem('token', data.token);
+    }
+    const user = data.user || {};
+    localStorage.setItem('user', JSON.stringify(user));
+
+    return data;
   },
 };

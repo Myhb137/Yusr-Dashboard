@@ -5,6 +5,7 @@ import { adminService } from '../services/adminService';
 import { offerService } from '../services/offerService';
 import api from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
+import { User } from '../types/api';
 
 export function AdminManagement() {
   const { t, isRTL } = useLanguage();
@@ -12,7 +13,7 @@ export function AdminManagement() {
 
 
   // Agencies State
-  const [admins, setAdmins] = useState<any[]>([]);
+  const [admins, setAdmins] = useState<User[]>([]);
   const [isLoadingAdmins, setIsLoadingAdmins] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +25,8 @@ export function AdminManagement() {
     phone: '',
     email: '',
     password: '',
+    agency_name: '',
+    agency_logo_url: '',
   });
 
   // Offers State
@@ -33,11 +36,27 @@ export function AdminManagement() {
 
   const fetchAdmins = useCallback(async () => {
     setIsLoadingAdmins(true);
+    setError(null);
     try {
-      const data = await adminService.getAllUsers();
-      setAdmins(data?.users || data?.data?.users || data?.data || data || []);
+      const data = await adminService.getAllAdmins();
+      console.log('Admins API Response:', data);
+      
+      const adminsList = data?.admins || data?.data?.admins || data?.users || data?.data?.users || data?.data || data;
+      
+      if (adminsList && Array.isArray(adminsList)) {
+        setAdmins(adminsList);
+      } else if (adminsList && typeof adminsList === 'object') {
+        // If it's a single object, maybe it's one admin?
+        setAdmins([adminsList]);
+      } else {
+        setAdmins([]);
+        if (!data) setError('API returned no data');
+      }
     } catch (err: any) {
       console.error('Failed to fetch admins:', err);
+      const apiError = err.response?.data;
+      const status = err.response?.status;
+      setError(`Error ${status || ''}: ${apiError?.message || apiError?.error || err.message || 'Failed to fetch agency admins.'}`);
     } finally {
       setIsLoadingAdmins(false);
     }
@@ -74,34 +93,26 @@ export function AdminManagement() {
     setSuccess(null);
 
     try {
-      // Create user via signup endpoint — gender always 'male', role always 'user' (backend validation requires this)
-      const signupRes = await api.post('/api/v1/auth/signup', {
-        email: formData.email,
-        password: formData.password,
+      // Use the dedicated POST /api/v1/admin/admins endpoint as per Swagger
+      await adminService.createAdmin({
         firstName: formData.firstName,
         lastName: formData.lastName,
+        email: formData.email,
         phone: formData.phone,
-        gender: 'male',
-        role: 'user',
+        password: formData.password,
+        agency_name: formData.agency_name || null,
+        agency_logo_url: formData.agency_logo_url || null,
       });
 
-      // Extract new user ID from response and promote to 'admin'
-      const newUser = signupRes.data?.user || signupRes.data?.data || signupRes.data;
-      const newUserId = newUser?._id || newUser?.id;
-
-      if (newUserId) {
-        await adminService.updateUserRole(String(newUserId), 'admin');
-      }
-
       setSuccess(t.admins.adminCreated);
-      setFormData({ firstName: '', lastName: '', phone: '', email: '', password: '' });
+      setFormData({ firstName: '', lastName: '', phone: '', email: '', password: '', agency_name: '', agency_logo_url: '' });
       fetchAdmins();
     } catch (err: any) {
       const apiError = err.response?.data;
       const errorCode = apiError?.error?.code;
       
       const errorMsg =
-        errorCode === 'user_already_exists'
+        errorCode === 'user_already_exists' || err.response?.status === 409
           ? t.admins.userAlreadyExists
           : (Array.isArray(apiError?.data) ? apiError.data.map((d: any) => d.message).join(', ') : null) ||
             apiError?.message ||
@@ -114,12 +125,21 @@ export function AdminManagement() {
 
   const handleToggleStatus = async (admin: any) => {
     try {
-      const newStatus = admin.status === 'active' ? 'inactive' : 'active';
-      await adminService.updateUserStatus(admin._id || admin.id, newStatus);
+      // Swagger 'delete' is Deactivate. We can use it to toggle if we assume it sets status to inactive.
+      await adminService.deleteAdmin(admin._id || admin.id);
       fetchAdmins();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to toggle status', err);
-      alert('Failed to update status. Please view console for details.');
+    }
+  };
+
+  const handleDeleteAdmin = async (id: string) => {
+    if (!window.confirm('Are you sure you want to deactivate this agency admin?')) return;
+    try {
+      await adminService.deleteAdmin(id);
+      fetchAdmins();
+    } catch (err: any) {
+      console.error('Failed to deactivate admin', err);
     }
   };
 
@@ -207,6 +227,15 @@ export function AdminManagement() {
               </div>
 
               <div>
+                <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>{t.admins.agencyName}</label>
+                <div className="relative">
+                  <Business className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-sm ${isRTL ? 'right-3' : 'left-3'}`} />
+                  <input type="text" name="agency_name" value={formData.agency_name} onChange={handleInputChange}
+                    className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm ${isRTL ? 'pr-9 pl-3 text-right' : 'pl-9 pr-3 text-left'}`}
+                    placeholder="Buraq Travel" />
+                </div>
+              </div>
+              <div>
                 <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>{t.common.phone}</label>
                 <div className="relative">
                   <Badge className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-sm ${isRTL ? 'right-3' : 'left-3'}`} />
@@ -234,6 +263,16 @@ export function AdminManagement() {
                 </div>
               </div>
 
+              <div>
+                <label className={`block text-sm font-medium text-gray-700 mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>Agency Logo URL</label>
+                <div className="relative">
+                  <Business className={`absolute top-1/2 -translate-y-1/2 text-gray-400 text-sm ${isRTL ? 'right-3' : 'left-3'}`} />
+                  <input type="text" name="agency_logo_url" value={formData.agency_logo_url} onChange={handleInputChange}
+                    className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm ${isRTL ? 'pr-9 pl-3 text-right' : 'pl-9 pr-3 text-left'}`}
+                    placeholder="https://..." />
+                </div>
+              </div>
+
 
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} disabled={isSubmitting}
                 className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg transition-all disabled:opacity-50">
@@ -244,7 +283,14 @@ export function AdminManagement() {
 
           {/* Existing Admins List */}
           <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">{t.admins.agencies}</h3>
+            <div className={`flex items-center justify-between mb-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
+              <h3 className="text-lg font-bold text-gray-900">{t.admins.agencies}</h3>
+              {error && !isSubmitting && (
+                <div className="p-2 bg-red-50 text-red-600 rounded-lg text-xs border border-red-100 animate-pulse">
+                  {error}
+                </div>
+              )}
+            </div>
             {isLoadingAdmins ? (
               <div className="flex justify-center p-8">
                 <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
@@ -255,8 +301,8 @@ export function AdminManagement() {
                   <thead>
                     <tr className="border-b border-gray-100 pb-3 text-gray-500 font-medium">
                       <th className="py-3 px-4">{t.common.name}</th>
+                      <th className="py-3 px-4">{t.admins.agencyName}</th>
                       <th className="py-3 px-4">{t.common.email}</th>
-                      <th className="py-3 px-4">{t.common.role}</th>
                       <th className="py-3 px-4">{t.common.status}</th>
                       <th className={`py-3 px-4 ${isRTL ? 'text-left' : 'text-right'}`}>{t.common.actions}</th>
                     </tr>
@@ -270,14 +316,10 @@ export function AdminManagement() {
                           <td className="py-3 px-4 font-medium text-gray-900">
                             {admin.name || `${admin.firstName || ''} ${admin.lastName || ''}`}
                           </td>
-                          <td className="py-3 px-4 text-gray-600">{admin.email}</td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                              admin.role === 'superadmin' ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'
-                            }`}>
-                              {admin.role || 'user'}
-                            </span>
+                          <td className="py-3 px-4 text-gray-600">
+                            {admin.agency_name || admin.agencyName || '-'}
                           </td>
+                          <td className="py-3 px-4 text-gray-600">{admin.email}</td>
                           <td className="py-3 px-4">
                             <button
                               onClick={() => handleToggleStatus(admin)}
@@ -290,9 +332,17 @@ export function AdminManagement() {
                             </button>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <button className="p-1.5 text-gray-400 hover:text-indigo-600 transition-colors">
-                              <Edit className="text-[18px]" />
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button className="p-1.5 text-gray-400 hover:text-indigo-600 transition-colors">
+                                <Edit className="text-[18px]" />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteAdmin(admin._id || admin.id)}
+                                className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
+                              >
+                                <Delete className="text-[18px]" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))

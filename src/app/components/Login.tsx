@@ -20,6 +20,11 @@ export function Login({ onLoginSuccess }: LoginProps) {
   const { t, language, setLanguage, isRTL } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [code, setCode] = useState('');
+  const [twoFactorToken, setTwoFactorToken] = useState('');
+  const [firebaseIdToken, setFirebaseIdToken] = useState('');
+  const [showOtp, setShowOtp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
@@ -30,9 +35,19 @@ export function Login({ onLoginSuccess }: LoginProps) {
     setIsLoading(true);
 
     try {
-      await authService.login({ email, password });
+      const response = await authService.login({ email, password });
+      
+      // If backend signals that OTP is required
+      if (response.requiresOtp || response.requiresTwoFactor || response.twoFactorToken) {
+        setTwoFactorToken(response.twoFactorToken || '');
+        setFirebaseIdToken('');
+        setShowOtp(true);
+        return;
+      }
+
+      // Normal flow if no OTP required
       const profile = await authService.getCurrentUser();
-      const role = String(profile?.user?.role || profile?.role || '').toLowerCase().trim();
+      const role = String(profile?.user?.role || profile?.role || '').toLowerCase().replace(/[_ ]/g, '');
       const fullUser = profile?.user || profile || {};
       localStorage.setItem('user', JSON.stringify(fullUser));
 
@@ -44,6 +59,38 @@ export function Login({ onLoginSuccess }: LoginProps) {
       }
     } catch (err: any) {
       setError(err.response?.data?.message || t.login.invalidCredentials);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      await authService.verifyAdmin2FA({
+        twoFactorToken,
+        ...(firebaseIdToken ? { firebaseIdToken } : {}),
+        ...(otp ? { otp } : {}),
+        ...(code ? { code } : {}),
+      });
+      
+      // Fetch full profile after 2FA to ensure we have the correct role and data
+      const profile = await authService.getCurrentUser();
+      const role = String(profile?.user?.role || profile?.role || '').toLowerCase().replace(/[_ ]/g, '');
+      const fullUser = profile?.user || profile || {};
+      localStorage.setItem('user', JSON.stringify(fullUser));
+
+      if (role === 'admin' || role === 'superadmin') {
+        onLoginSuccess();
+      } else {
+        await authService.logout();
+        setError(t.login.accessDenied);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Invalid verification codes. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -132,74 +179,168 @@ export function Login({ onLoginSuccess }: LoginProps) {
             </motion.div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5" dir={isRTL ? 'rtl' : 'ltr'}>
-            <div>
-              <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
-                {t.login.email}
-              </label>
-              <div className="relative group">
-                <Email className={iconClass} fontSize="small" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={inputClass}
-                  placeholder={t.login.emailPlaceholder}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
-                {t.login.password}
-              </label>
-              <div className="relative group">
-                <Lock className={iconClass} fontSize="small" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={inputClass}
-                  placeholder={t.login.passwordPlaceholder}
-                />
-              </div>
-            </div>
-
-            <div className={`flex items-center justify-between pt-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
-              <label className="flex items-center gap-2 cursor-pointer group">
-                <div className="relative flex items-center justify-center w-5 h-5">
-                  <input type="checkbox" className="peer w-5 h-5 appearance-none rounded border-2 border-gray-300 checked:bg-blue-600 checked:border-blue-600 transition-colors cursor-pointer" />
-                  <svg className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
+          <AnimatePresence mode="wait">
+            {!showOtp ? (
+              <motion.form
+                key="login-form"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                onSubmit={handleSubmit}
+                className="space-y-5"
+                dir={isRTL ? 'rtl' : 'ltr'}
+              >
+                <div>
+                  <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
+                    {t.login.email}
+                  </label>
+                  <div className="relative group">
+                    <Email className={iconClass} fontSize="small" />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={inputClass}
+                      placeholder={t.login.emailPlaceholder}
+                    />
+                  </div>
                 </div>
-                <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                  {t.login.rememberMe}
-                </span>
-              </label>
-              <a href="#" className="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-                {t.login.forgotPassword}
-              </a>
-            </div>
 
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
-              disabled={isLoading}
-              className={`w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70 group ${isRTL ? 'flex-row-reverse' : ''}`}
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              ) : (
-                <>
-                  <span>{t.login.signIn}</span>
-                  <ArrowForward fontSize="small" className={`${isRTL ? 'group-hover:-translate-x-1 rotate-180' : 'group-hover:translate-x-1'} transition-transform`} />
-                </>
-              )}
-            </motion.button>
-          </form>
+                <div>
+                  <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
+                    {t.login.password}
+                  </label>
+                  <div className="relative group">
+                    <Lock className={iconClass} fontSize="small" />
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={inputClass}
+                      placeholder={t.login.passwordPlaceholder}
+                    />
+                  </div>
+                </div>
+
+                <div className={`flex items-center justify-between pt-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                  <label className="flex items-center gap-2 cursor-pointer group">
+                    <div className="relative flex items-center justify-center w-5 h-5">
+                      <input type="checkbox" className="peer w-5 h-5 appearance-none rounded border-2 border-gray-300 checked:bg-blue-600 checked:border-blue-600 transition-colors cursor-pointer" />
+                      <svg className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
+                      {t.login.rememberMe}
+                    </span>
+                  </label>
+                  <a href="#" className="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+                    {t.login.forgotPassword}
+                  </a>
+                </div>
+
+                <motion.button
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  disabled={isLoading}
+                  className={`w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70 group ${isRTL ? 'flex-row-reverse' : ''}`}
+                >
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <span>{t.login.signIn}</span>
+                      <ArrowForward fontSize="small" className={`${isRTL ? 'group-hover:-translate-x-1 rotate-180' : 'group-hover:translate-x-1'} transition-transform`} />
+                    </>
+                  )}
+                </motion.button>
+              </motion.form>
+            ) : (
+              <motion.form
+                key="otp-form"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                onSubmit={handleVerifyOtp}
+                className="space-y-5"
+                dir={isRTL ? 'rtl' : 'ltr'}
+              >
+                <div className="text-center mb-6">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-50 text-blue-600 rounded-full mb-4">
+                    <Lock fontSize="large" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900">Security Verification</h3>
+                  <p className="text-gray-500 text-sm mt-2">
+                    Please enter the 6-digit verification code sent to your email.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
+                      OTP Code
+                    </label>
+                    <div className="relative group">
+                      <Lock className={iconClass} fontSize="small" />
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                        className={`${inputClass} tracking-widest text-center font-bold`}
+                        placeholder="••••••"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
+                      Security Code
+                    </label>
+                    <div className="relative group">
+                      <Lock className={iconClass} fontSize="small" />
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                        className={`${inputClass} tracking-widest text-center font-bold`}
+                        placeholder="••••••"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <motion.button
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  disabled={isLoading || (otp.length < 6 && code.length < 6)}
+                  className={`w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70 group ${isRTL ? 'flex-row-reverse' : ''}`}
+                >
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <span>Verify & Access Dashboard</span>
+                      <ArrowForward fontSize="small" className={`${isRTL ? 'group-hover:-translate-x-1 rotate-180' : 'group-hover:translate-x-1'} transition-transform`} />
+                    </>
+                  )}
+                </motion.button>
+
+                <button
+                  type="button"
+                  onClick={() => { setShowOtp(false); setOtp(''); }}
+                  className="w-full text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors py-2"
+                >
+                  Back to login
+                </button>
+              </motion.form>
+            )}
+          </AnimatePresence>
 
           <p className={`mt-8 text-center text-sm text-gray-500`}>
             {t.login.trouble}{' '}

@@ -1,249 +1,111 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Search,
-  FilterList,
-  FileDownload,
   Visibility,
   CheckCircle,
   HourglassEmpty,
   Cancel,
-  AttachMoney,
   CalendarToday,
   Person,
   LocationOn,
   Phone,
   Email as EmailIcon,
   Close,
-  AccountCircle
+  AccountCircle,
+  Payments,
+  VerifiedUser,
+  RestartAlt,
 } from '@mui/icons-material';
 
-import { bookingService } from '../services/bookingService';
-import { offerService } from '../services/offerService';
-import { authService } from '../services/authService';
 import { useLanguage } from '../context/LanguageContext';
+import { useBookings } from '../context/BookingContext';
+import { Booking, User } from '../types/api';
 
-interface Booking {
-  id: string;
-  bookingRef: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone?: string;
-  customerGender?: string;
-  offerName: string;
-  destination: string;
-  startDate: string;
-  endDate: string;
-  travelers: number;
-  amount: string;
-  status: 'confirmed' | 'pending' | 'cancelled';
-  paymentStatus: 'paid' | 'pending' | 'refunded';
-  fullUser?: any;
-  offer?: any;
-}
+type BookingStatusFilter = 'all' | 'pending' | 'validated' | 'ready_for_agency' | 'completed' | 'cancelled';
+type PaymentStatusFilter = 'all' | 'pending' | 'under_review' | 'paid' | 'failed' | 'refunded';
+type BookingStatusValue = 'pending' | 'validated' | 'ready_for_agency' | 'completed' | 'cancelled';
 
 export function Bookings() {
   const { t, isRTL } = useLanguage();
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { bookings, isLoading, refreshBookings, updateBookingStatus, updatePaymentStatus, validateAttendance, resetToPending } = useBookings();
+  
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState<'all' | 'confirmed' | 'pending' | 'cancelled'>('all');
+  const [selectedStatus, setSelectedStatus] = useState<BookingStatusFilter>('all');
+  const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<PaymentStatusFilter>('all');
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<any>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [depositInput, setDepositInput] = useState<string>('');
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Sync deposit input when a different booking is opened
   useEffect(() => {
-    const fetchBookings = async () => {
-      try {
-        setIsLoading(true);
-
-        // 1. Get current user
-        const user = authService.getStoredUser();
-        setCurrentUser(user);
-        const currentUserId = user?._id || user?.id;
-        const currentRole = String(
-          user?.role || user?.user_metadata?.role || user?.app_metadata?.role || ''
-        ).toLowerCase().replace(/[_ ]/g, '');
-
-        // Helper: extract ID — booking schema uses flat user_id / offer_id strings
-        const extractId = (obj: any, ...keys: string[]): string | null => {
-          if (!obj) return null;
-          for (const key of keys) {
-            const val = obj[key];
-            if (!val) continue;
-            if (typeof val === 'string' && val.length > 0) return val;
-            const id = val?._id || val?.id;
-            if (id) return String(id);
-          }
-          return null;
-        };
-
-        // 2. Fetch bookings — superadmin gets all, admin gets bookings for their offers, user gets bookings they made
-        let bookingsArray: any[] = [];
-
-        if (currentRole === 'superadmin') {
-          const data = await bookingService.getAllBookings();
-          bookingsArray = Array.isArray(data) ? data : (data?.bookings || data?.data || []);
-        } else if (currentRole === 'admin' && currentUserId) {
-          // Admin: needs to see bookings for THEIR offers
-          const [bookingsData, offersData] = await Promise.all([
-            bookingService.getAllBookings(),
-            offerService.getAllOffers()
-          ]);
-          
-          const allOffers = Array.isArray(offersData) ? offersData : (offersData?.offers || []);
-          const myOfferIds = allOffers
-            .filter((o: any) => {
-              const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
-              const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
-              return String(ownerIdStr) === String(currentUserId);
-            })
-            .map((o: any) => String(o.id || o._id));
-
-          const allBookings = Array.isArray(bookingsData) ? bookingsData : (bookingsData?.bookings || bookingsData?.data || []);
-          bookingsArray = allBookings.filter((b: any) => {
-            const oid = extractId(b, 'offer_id', 'offerId', 'offer');
-            return oid && myOfferIds.includes(oid);
-          });
-        } else if (currentUserId) {
-          // Regular user: see bookings they made
-          const data = await bookingService.getUserBookings(currentUserId);
-          bookingsArray = Array.isArray(data) ? data : (data?.bookings || data?.data || []);
-        } else {
-          // Fallback
-          const data = await bookingService.getAllBookings();
-          bookingsArray = Array.isArray(data) ? data : (data?.bookings || data?.data || []);
-        }
-
-        // Helper: extract display name — API User schema uses full_name
-        const extractName = (u: any): string =>
-          u?.full_name ||
-          u?.name ||
-          `${u?.firstName || u?.first_name || ''} ${u?.lastName || u?.last_name || ''}`.trim() ||
-          u?.username ||
-          u?.email?.split('@')[0] ||
-          '';
-
-        // 3. Collect unique user and offer IDs
-        // Booking schema: { user_id, offer_id, ... } (flat UUIDs)
-        const userIdSet = new Set<string>();
-        const offerIdSet = new Set<string>();
-
-        bookingsArray.forEach((b: any) => {
-          const uid = extractId(b, 'user_id', 'userId', 'user', 'customer_id', 'customerId');
-          if (uid) userIdSet.add(uid);
-          const oid = extractId(b, 'offer_id', 'offerId', 'offer');
-          if (oid) offerIdSet.add(oid);
-        });
-
-        console.log('[Bookings] IDs to fetch:', { userIds: [...userIdSet], offerIds: [...offerIdSet], sample: bookingsArray[0] });
-
-        // 4. Fetch user and offer details in parallel
-        const [userResults, offerResults] = await Promise.all([
-          Promise.allSettled(
-            [...userIdSet].map(id =>
-              bookingService.getUserById(id).then(r => ({
-                id,
-                data: r?.user || r?.data?.user || r?.data || r,
-              }))
-            )
-          ),
-          Promise.allSettled(
-            [...offerIdSet].map(id =>
-              offerService.getOfferDetails(id).then(r => ({
-                id,
-                data: r?.offer || r?.data?.offer || r?.data || r,
-              }))
-            )
-          ),
-        ]);
-
-        const userMap: Record<string, any> = {};
-        userResults.forEach(r => {
-          if (r.status === 'fulfilled') userMap[r.value.id] = r.value.data;
-          else console.warn('[Bookings] user fetch failed:', r.reason?.message);
-        });
-
-        const offerMap: Record<string, any> = {};
-        offerResults.forEach(r => {
-          if (r.status === 'fulfilled') offerMap[r.value.id] = r.value.data;
-        });
-
-        // 5. Map bookings using enriched data
-        const mappedBookings: Booking[] = bookingsArray.map((booking: any) => {
-          const uid = extractId(booking, 'user_id', 'userId', 'user', 'customer_id', 'customerId');
-          const oid = extractId(booking, 'offer_id', 'offerId', 'offer');
-
-          const u = uid ? userMap[uid] : null;
-          const o = oid ? offerMap[oid] : null;
-
-          // Also check embedded objects as last resort
-          const embeddedUser = typeof booking.user === 'object' ? booking.user : null;
-          const embeddedOffer = typeof booking.offer === 'object' ? booking.offer : null;
-          const resolvedUser = u ?? embeddedUser;
-          const resolvedOffer = o ?? embeddedOffer;
-
-          return {
-            id: booking.id || booking._id,
-            bookingRef:
-              booking.ref ||
-              booking.bookingRef ||
-              `BK-${(booking.id || booking._id).toString().slice(-6).toUpperCase()}`,
-            customerName: extractName(resolvedUser) || booking.customerName || 'Unknown User',
-            customerEmail: resolvedUser?.email || booking.customerEmail || '-',
-            customerPhone: resolvedUser?.phone || resolvedUser?.phoneNumber || booking.customerPhone || '-',
-            customerGender: resolvedUser?.gender || booking.customerGender || '-',
-            offerName: resolvedOffer?.title || resolvedOffer?.name || booking.offerName || 'Custom Trip',
-            destination: resolvedOffer?.location || resolvedOffer?.destination || booking.destination || '-',
-            startDate: booking.startDate || booking.start_date || '-',
-            endDate: booking.endDate || booking.end_date || '-',
-            travelers: booking.travelers || booking.people || 1,
-            amount:
-              booking.totalAmount !== undefined
-                ? `${booking.totalAmount} DZD`
-                : booking.total_price !== undefined
-                  ? `${booking.total_price} DZD`
-                  : booking.amount || '0 DZD',
-            status: booking.status || 'pending',
-            paymentStatus: booking.paymentStatus || booking.payment_status || (booking.paid ? 'paid' : 'pending'),
-            fullUser: resolvedUser,
-            offer: resolvedOffer,
-          };
-        });
-
-        setBookings(mappedBookings);
-      } catch (err: any) {
-        console.error('Failed to fetch bookings:', err);
-        setError('Failed to load bookings.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchBookings();
-  }, []);
+    if (selectedBooking) {
+      setDepositInput(selectedBooking.depositAmount > 0 ? String(selectedBooking.depositAmount) : '');
+      setValidationError(null);
+    }
+  }, [selectedBooking?.id]);
 
   const handleStatusChange = useCallback(async (bookingId: string, newStatus: string) => {
     setIsUpdatingStatus(true);
     try {
-      await bookingService.updateBookingStatus(bookingId, newStatus);
-      // Update local state
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === bookingId ? { ...b, status: newStatus as Booking['status'] } : b
-        )
-      );
+      await updateBookingStatus(bookingId, newStatus);
       if (selectedBooking?.id === bookingId) {
-        setSelectedBooking((prev) => prev ? { ...prev, status: newStatus as Booking['status'] } : prev);
+        setSelectedBooking((prev: any) => prev ? { ...prev, status: newStatus } : prev);
       }
     } catch (err) {
       console.error('Failed to update booking status:', err);
     } finally {
       setIsUpdatingStatus(false);
     }
-  }, [selectedBooking?.id]);
+  }, [selectedBooking?.id, updateBookingStatus]);
+
+  const handlePaymentStatusChange = useCallback(async (bookingId: string, newPaymentStatus: string) => {
+    setIsUpdatingStatus(true);
+    try {
+      await updatePaymentStatus(bookingId, newPaymentStatus);
+      if (selectedBooking?.id === bookingId) {
+        setSelectedBooking((prev: any) => prev ? { ...prev, paymentStatus: newPaymentStatus } : prev);
+      }
+    } catch (err) {
+      console.error('Failed to update payment status:', err);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  }, [selectedBooking?.id, updatePaymentStatus]);
+
+  const handleValidateAttendance = useCallback(async () => {
+    if (!selectedBooking) return;
+    const amount = parseFloat(depositInput) || 0;
+    setIsValidating(true);
+    setValidationError(null);
+    try {
+      await validateAttendance(selectedBooking.id, amount);
+      setSelectedBooking((prev: any) => prev ? { ...prev, status: 'validated', paymentStatus: 'paid', depositAmount: amount } : prev);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to validate attendance.';
+      setValidationError(msg);
+      console.error('Failed to validate attendance:', err);
+    } finally {
+      setIsValidating(false);
+    }
+  }, [selectedBooking, depositInput, validateAttendance]);
+
+  const handleResetToPending = useCallback(async () => {
+    if (!selectedBooking) return;
+    setIsValidating(true);
+    try {
+      await resetToPending(selectedBooking.id);
+      setSelectedBooking((prev: any) => prev ? { ...prev, status: 'pending', paymentStatus: 'pending', depositAmount: 0 } : prev);
+      setDepositInput('');
+    } catch (err) {
+      console.error('Failed to reset booking:', err);
+    } finally {
+      setIsValidating(false);
+    }
+  }, [selectedBooking, resetToPending]);
 
   const filteredBookings = useMemo(() => {
     return bookings.filter((booking) => {
@@ -252,14 +114,15 @@ export function Bookings() {
         booking.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         booking.offerName.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = selectedStatus === 'all' || booking.status === selectedStatus;
-      return matchesSearch && matchesStatus;
+      const matchesPaymentStatus = selectedPaymentStatus === 'all' || booking.paymentStatus === selectedPaymentStatus;
+      return matchesSearch && matchesStatus && matchesPaymentStatus;
     });
-  }, [bookings, searchQuery, selectedStatus]);
+  }, [bookings, searchQuery, selectedStatus, selectedPaymentStatus]);
 
   const stats = useMemo(() => {
     return {
       total: bookings.length,
-      confirmed: bookings.filter((b) => b.status === 'confirmed').length,
+      confirmed: bookings.filter((b) => b.status === 'confirmed' || b.status === 'validated').length,
       pending: bookings.filter((b) => b.status === 'pending').length,
       cancelled: bookings.filter((b) => b.status === 'cancelled').length,
     };
@@ -268,8 +131,11 @@ export function Bookings() {
   const getStatusColor = useCallback((status: string) => {
     switch (status) {
       case 'confirmed':
+      case 'validated':
+      case 'completed':
         return 'bg-emerald-100 text-emerald-700 border-emerald-200';
       case 'pending':
+      case 'ready_for_agency':
         return 'bg-amber-100 text-amber-700 border-amber-200';
       case 'cancelled':
         return 'bg-red-100 text-red-700 border-red-200';
@@ -283,13 +149,43 @@ export function Bookings() {
       case 'paid':
         return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'pending':
+      case 'under_review':
         return 'bg-yellow-100 text-yellow-700 border-yellow-200';
       case 'refunded':
         return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'failed':
+        return 'bg-red-100 text-red-700 border-red-200';
       default:
         return 'bg-gray-100 text-gray-700 border-gray-200';
     }
   }, []);
+
+  const getAllowedNextStatuses = useCallback((currentStatus: BookingStatusValue): BookingStatusValue[] => {
+    // Backend-enforced flow from API error:
+    // pending -> validated -> ready_for_agency -> completed, with cancellation allowed before completion.
+    switch (currentStatus) {
+      case 'pending':
+        return ['pending', 'validated', 'cancelled'];
+      case 'validated':
+        return ['validated', 'ready_for_agency', 'cancelled'];
+      case 'ready_for_agency':
+        return ['ready_for_agency', 'completed', 'cancelled'];
+      case 'completed':
+        return ['completed'];
+      case 'cancelled':
+        return ['cancelled'];
+      default:
+        return ['pending'];
+    }
+  }, []);
+
+  if (isLoading && bookings.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div dir={isRTL ? 'rtl' : 'ltr'}>
@@ -383,34 +279,41 @@ export function Bookings() {
           </div>
 
           {/* Filters */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value as any)}
-              className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-all"
+              className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-all text-sm"
             >
-              <option value="all">{t.common.all}</option>
-              <option value="confirmed">{t.bookings.confirmed}</option>
+              <option value="all">Booking: {t.common.all}</option>
               <option value="pending">{t.bookings.pending}</option>
+              <option value="validated">{t.bookings.validated || 'validated'}</option>
+              <option value="ready_for_agency">{t.bookings.ready_for_agency}</option>
+              <option value="completed">{t.bookings.completed}</option>
               <option value="cancelled">{t.bookings.cancelled}</option>
+            </select>
+
+            <select
+              value={selectedPaymentStatus}
+              onChange={(e) => setSelectedPaymentStatus(e.target.value as any)}
+              className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-all text-sm"
+            >
+              <option value="all">Payment: {t.common.all}</option>
+              <option value="pending">{t.bookings.pending}</option>
+              <option value="under_review">{t.bookings.under_review}</option>
+              <option value="paid">{t.bookings.paid}</option>
+              <option value="failed">{t.bookings.failed}</option>
+              <option value="refunded">{t.bookings.refunded}</option>
             </select>
 
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={refreshBookings}
               className="p-3 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
-              title="More Filters"
+              title="Refresh Bookings"
             >
-              <FilterList className="text-gray-600" />
-            </motion.button>
-
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-600/30 hover:shadow-xl transition-all font-medium whitespace-nowrap"
-            >
-              <FileDownload className="text-xl" />
-              <span className="hidden sm:inline">Export</span>
+              <RestartAlt className={`text-gray-600 ${isLoading ? 'animate-spin' : ''}`} />
             </motion.button>
           </div>
         </div>
@@ -477,21 +380,24 @@ export function Bookings() {
                     <p className="font-semibold text-gray-900">{booking.amount}</p>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <select
-                      value={booking.status}
-                      onChange={(e) => handleStatusChange(booking.id, e.target.value)}
-                      disabled={isUpdatingStatus}
-                      className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60 ${getStatusColor(booking.status)}`}
-                    >
-                      <option value="confirmed">✓ {t.bookings.confirmed}</option>
-                      <option value="pending">⏳ {t.bookings.pending}</option>
-                      <option value="cancelled">✕ {t.bookings.cancelled}</option>
-                    </select>
+                    {(() => {
+                      const StatusIcon = (
+                        booking.status === 'confirmed' ||
+                        booking.status === 'validated' ||
+                        booking.status === 'completed'
+                      ) ? CheckCircle : booking.status === 'cancelled' ? Cancel : HourglassEmpty;
+                      return (
+                        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusColor(booking.status)}`}>
+                          <StatusIcon className="text-sm" />
+                          <span className="uppercase tracking-wider">{t.bookings[booking.status as keyof typeof t.bookings] || booking.status}</span>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(booking.paymentStatus)}`}>
-                      {booking.paymentStatus.charAt(0).toUpperCase() + booking.paymentStatus.slice(1)}
-                    </span>
+                    <div className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold border ${getPaymentStatusColor(booking.paymentStatus)}`}>
+                      <span className="uppercase tracking-wider">{t.bookings[booking.paymentStatus as keyof typeof t.bookings] || booking.paymentStatus}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <motion.button
@@ -575,7 +481,7 @@ export function Bookings() {
                       </div>
                       <div className="flex items-center gap-3 text-gray-600">
                         <Person className="text-sm" />
-                        <span className="text-sm font-medium capitalize">Gender: {selectedBooking.customerGender}</span>
+                        <span className="text-sm font-medium capitalize">{t.bookings.gender}: {selectedBooking.customerGender}</span>
                       </div>
                     </div>
                   </div>
@@ -608,7 +514,7 @@ export function Bookings() {
                     </div>
                     <div className="p-4 bg-gray-50 rounded-2xl">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Total Paid</span>
+                        <span className="text-sm font-medium text-gray-600">Total Trip Price</span>
                         <span className="text-lg font-black text-blue-600">{selectedBooking.amount}</span>
                       </div>
                     </div>
@@ -616,8 +522,8 @@ export function Bookings() {
                 </div>
               </div>
 
-              {/* Status Section */}
               <div className="mt-8 pt-6 border-t border-gray-100">
+                <h4 className="text-sm font-bold text-gray-900 uppercase tracking-widest mb-4">{t.bookings.managementActions}</h4>
                 <div className="flex flex-wrap gap-6 items-end">
                   {/* Booking Status */}
                   <div className="flex flex-col gap-1.5">
@@ -625,24 +531,160 @@ export function Bookings() {
                     <select
                       value={selectedBooking.status}
                       onChange={(e) => handleStatusChange(selectedBooking.id, e.target.value)}
-                      disabled={isUpdatingStatus}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60 ${getStatusColor(selectedBooking.status)}`}
+                      disabled={isUpdatingStatus || isValidating || selectedBooking.status === 'completed' || selectedBooking.status === 'cancelled'}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60 disabled:cursor-not-allowed ${getStatusColor(selectedBooking.status)}`}
                     >
-                      <option value="confirmed">✓ {t.bookings.confirmed}</option>
-                      <option value="pending">⏳ {t.bookings.pending}</option>
-                      <option value="cancelled">✕ {t.bookings.cancelled}</option>
+                      {getAllowedNextStatuses(selectedBooking.status as BookingStatusValue).map((status) => (
+                        <option key={status} value={status}>
+                          {status === 'pending' ? '⏳' :
+                           status === 'validated' ? '✓' :
+                           status === 'ready_for_agency' ? '🏢' :
+                           status === 'completed' ? '✅' :
+                           status === 'cancelled' ? '✕' :
+                           '•'}{' '}
+                          {t.bookings[status as keyof typeof t.bookings] || status}
+                        </option>
+                      ))}
                     </select>
+                    {selectedBooking.status === 'validated' && (
+                      <p className="text-[10px] text-amber-600 font-medium">↓ Use panel below to change</p>
+                    )}
                   </div>
-                  {/* Payment Status Badge */}
+                  {/* Payment Status */}
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t.bookings.paymentStatus}</label>
-                    <div className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border ${getPaymentStatusColor(selectedBooking.paymentStatus)}`}>
-                      Payment: {selectedBooking.paymentStatus}
-                    </div>
+                    <select
+                      value={selectedBooking.paymentStatus}
+                      onChange={(e) => handlePaymentStatusChange(selectedBooking.id, e.target.value)}
+                      disabled={isUpdatingStatus || isValidating}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60 disabled:cursor-not-allowed ${getPaymentStatusColor(selectedBooking.paymentStatus)}`}
+                    >
+                      <option value="pending">{t.bookings.pending}</option>
+                      <option value="under_review">{t.bookings.under_review}</option>
+                      <option value="paid">{t.bookings.paid}</option>
+                      <option value="failed">{t.bookings.failed}</option>
+                      <option value="refunded">{t.bookings.refunded}</option>
+                    </select>
                   </div>
                   {isUpdatingStatus && (
                     <p className="text-xs text-blue-500 font-medium animate-pulse">Updating status…</p>
                   )}
+                </div>
+              </div>
+
+              {/* ── Booking Fee & Attendance Validation ── */}
+              <div className="mt-6">
+                <div className={`rounded-2xl border-2 overflow-hidden ${
+                  selectedBooking.status === 'validated' && selectedBooking.paymentStatus === 'paid'
+                    ? 'border-emerald-200 bg-emerald-50/60'
+                    : 'border-amber-200 bg-amber-50/60'
+                }`}>
+                  {/* Panel header */}
+                  <div className={`flex items-center gap-3 px-5 py-3 ${
+                    selectedBooking.status === 'validated' && selectedBooking.paymentStatus === 'paid'
+                      ? 'bg-emerald-100/70'
+                      : 'bg-amber-100/70'
+                  }`}>
+                    <Payments className={`text-xl ${
+                      selectedBooking.status === 'validated' && selectedBooking.paymentStatus === 'paid'
+                        ? 'text-emerald-600' : 'text-amber-600'
+                    }`} />
+                    <div className="flex-1">
+                      <p className={`text-sm font-bold ${
+                        selectedBooking.status === 'validated' && selectedBooking.paymentStatus === 'paid'
+                          ? 'text-emerald-800' : 'text-amber-800'
+                      }`}>{t.bookings.bookingFeeTitle}</p>
+                      <p className={`text-xs mt-0.5 ${
+                        selectedBooking.status === 'validated' && selectedBooking.paymentStatus === 'paid'
+                          ? 'text-emerald-600' : 'text-amber-600'
+                      }`}>{t.bookings.bookingFeeDesc}</p>
+                    </div>
+                    {/* Fee Status Badge */}
+                    {selectedBooking.status === 'validated' && selectedBooking.paymentStatus === 'paid' ? (
+                      <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-200 text-emerald-800 text-xs font-bold whitespace-nowrap">
+                        <VerifiedUser className="text-sm" />
+                        {t.bookings.feePaid}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-amber-200 text-amber-800 text-xs font-bold whitespace-nowrap">
+                        <HourglassEmpty className="text-sm" />
+                        {t.bookings.feeAwaitingPayment}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Panel body */}
+                  <div className="px-5 py-4 space-y-4">
+                    {/* Deposit amount row */}
+                    <div className="flex items-end gap-3">
+                      <div className="flex-1">
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+                          {t.bookings.depositAmount}
+                        </label>
+                        <div className="relative">
+                          <input
+                            id={`deposit-${selectedBooking.id}`}
+                            type="number"
+                            min="0"
+                            step="100"
+                            placeholder={t.bookings.depositPlaceholder}
+                            value={depositInput}
+                            onChange={(e) => { setDepositInput(e.target.value); setValidationError(null); }}
+                            disabled={isValidating}
+                            className="w-full pl-4 pr-16 py-2.5 rounded-xl border border-gray-300 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all disabled:opacity-60"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">DZD</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex flex-wrap gap-3">
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={handleValidateAttendance}
+                        disabled={isValidating || (selectedBooking.status === 'validated' && selectedBooking.paymentStatus === 'paid')}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-bold rounded-xl shadow-md shadow-emerald-500/30 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <VerifiedUser className="text-base" />
+                        {isValidating ? t.bookings.validating : t.bookings.validateAttendance}
+                      </motion.button>
+
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={handleResetToPending}
+                        disabled={isValidating || (selectedBooking.status === 'pending' && selectedBooking.paymentStatus === 'pending')}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-300 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <RestartAlt className="text-base" />
+                        {t.bookings.resetToPending}
+                      </motion.button>
+                    </div>
+
+                    {/* Backend validation error */}
+                    {validationError && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-start gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl"
+                      >
+                        <span className="text-red-500 text-base mt-0.5">⚠</span>
+                        <p className="text-sm text-red-700 font-medium">{validationError}</p>
+                      </motion.div>
+                    )}
+
+                    {/* Last recorded fee */}
+                    {selectedBooking.depositAmount > 0 && (
+                      <p className="text-xs text-gray-500">
+                        Last recorded fee:{' '}
+                        <span className="font-bold text-gray-700">
+                          {selectedBooking.depositAmount.toLocaleString()} DZD
+                        </span>
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

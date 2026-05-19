@@ -1,14 +1,16 @@
 import api from './api';
+import { Offer } from '../types/api';
 
 const OFFERS_ENDPOINT = import.meta.env.VITE_API_OFFERS_ENDPOINT || '/api/v1/offers';
 
 export const offerService = {
-  getAllOffers: async () => {
+  getAllOffers: async (): Promise<Offer[]> => {
     const response = await api.get(OFFERS_ENDPOINT);
-    return response.data;
+    const data = response.data;
+    return Array.isArray(data) ? data : (data?.offers || data?.data || []);
   },
 
-  getOfferDetails: async (id: string) => {
+  getOfferDetails: async (id: string): Promise<Offer> => {
     const response = await api.get(`${OFFERS_ENDPOINT}/${id}`);
     return response.data;
   },
@@ -28,8 +30,18 @@ export const offerService = {
     return response.data;
   },
 
-  addOfferTags: async (id: string, tags: string[]) => {
-    const response = await api.post(`${OFFERS_ENDPOINT}/${id}/tags`, { tags });
+  addOfferTag: async (id: string, tag: string) => {
+    const response = await api.post(`${OFFERS_ENDPOINT}/${id}/tags`, { tag });
+    return response.data;
+  },
+
+  addOfferReview: async (id: string, reviewData: any) => {
+    const response = await api.post(`${OFFERS_ENDPOINT}/${id}/reviews`, reviewData);
+    return response.data;
+  },
+
+  getOfferReviews: async (id: string) => {
+    const response = await api.get(`${OFFERS_ENDPOINT}/${id}/reviews`);
     return response.data;
   },
 };

@@ -60,24 +60,40 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
 
           // Filter bookings for my offers
           const myBookings = bookingsArray.filter((b: any) => {
-            const oid = b.offer_id || b.offerId || (typeof b.offer === 'object' ? b.offer.id || b.offer._id : null);
+            const oid = b.offer_id || b.offerId || (typeof b.offer === 'object' ? (b.offer.id || b.offer._id) : b.offer);
             return oid && myOfferIds.includes(String(oid));
           });
 
+          // Calculate unique customers
+          const uniqueCustomers = new Set(myBookings.map(b => {
+            const uid = b.user_id || b.userId || (typeof b.user === 'object' ? (b.user._id || b.user.id) : b.user);
+            return String(uid);
+          })).size;
+
           setStatsData({
             totalRevenue: myBookings.reduce((acc, b) => acc + Number(b.total_price || b.totalAmount || b.amount || 0), 0),
-            activeOffers: myOffers.filter(o => o.available === true || o.status === 'active').length,
+            activeOffers: myOffers.filter(o => o.available === true || o.status === 'active' || o.isActive).length,
             totalBookings: myBookings.length,
-            pendingReviews: 0,
+            totalUsers: uniqueCustomers,
             revenueChange: '+0%',
             offersChange: '0',
             bookingsChange: '+0%',
-            reviewsChange: '0',
+            usersChange: '+0',
           });
         } else {
           // Superadmin: Global stats
           const data = await adminService.getStats();
-          setStatsData(data);
+          // Normalize superadmin data keys
+          setStatsData({
+            totalRevenue: data?.totalRevenue || data?.revenue || 0,
+            activeOffers: data?.activeOffers || data?.offersCount || 0,
+            totalBookings: data?.totalBookings || data?.bookingsCount || 0,
+            totalUsers: data?.totalUsers || data?.usersCount || data?.customersCount || 0,
+            revenueChange: data?.revenueChange || '+0%',
+            offersChange: data?.offersChange || '0',
+            bookingsChange: data?.bookingsChange || '+0%',
+            usersChange: data?.usersChange || '+0',
+          });
         }
       } catch (err) {
         console.error('Failed to fetch dashboard stats:', err);
@@ -125,10 +141,10 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
     {
       id: 4,
       title: t.overview.totalUsers,
-      value: statsData?.pendingReviews?.toString() || '0',
-      change: statsData?.reviewsChange || '0',
-      trend: (statsData?.reviewsChange || '').startsWith('+') ? 'up' : 'down',
-      icon: Pending,
+      value: statsData?.totalUsers?.toString() || '0',
+      change: statsData?.usersChange || '0',
+      trend: (statsData?.usersChange || '').startsWith('-') ? 'down' : 'up',
+      icon: People,
       gradientFrom: 'from-orange-400',
       gradientTo: 'to-red-500',
       bgGradient: 'from-orange-400 to-red-500',

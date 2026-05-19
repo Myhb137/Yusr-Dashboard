@@ -11,8 +11,8 @@ const api = axios.create({
 // You can add request interceptors here for adding auth tokens in the future
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available from localStorage or .env file
-    const token = localStorage.getItem('token') || import.meta.env.VITE_API_TOKEN;
+    // Swagger bearerAuth uses JWT returned by auth endpoints.
+    const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }

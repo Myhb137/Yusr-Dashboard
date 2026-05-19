@@ -257,14 +257,6 @@ export function Analytics() {
             <h2 className="text-2xl font-bold text-gray-900 mb-1">Revenue & Bookings Trend</h2>
             <p className="text-sm text-gray-500">Monthly performance over the year</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors">
-              2024
-            </button>
-            <button className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
-              2023
-            </button>
-          </div>
         </div>
         <ResponsiveContainer width="100%" height={350}>
           <AreaChart data={revenueData}>
