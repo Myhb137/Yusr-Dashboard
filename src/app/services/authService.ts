@@ -6,7 +6,6 @@ import {
   ResetPasswordRequest,
   SignupRequest,
   VerifyAdmin2FARequest,
-  VerifyAdminOtpRequest,
 } from '../types/api';
 
 const AUTH_ENDPOINT = import.meta.env.VITE_API_AUTH_ENDPOINT || '/api/v1/auth';
@@ -75,19 +74,6 @@ export const authService = {
 
   verifyAdmin2FA: async (payload: VerifyAdmin2FARequest) => {
     const response = await api.post<AuthResponse>(`${AUTH_ENDPOINT}/login/verify-admin-2fa`, payload);
-    const data = response.data;
-
-    if (data.token) {
-      localStorage.setItem('token', data.token);
-    }
-    const user = data.user || {};
-    localStorage.setItem('user', JSON.stringify(user));
-
-    return data;
-  },
-
-  verifyAdminOtp: async (payload: VerifyAdminOtpRequest) => {
-    const response = await api.post<AuthResponse>(`${AUTH_ENDPOINT}/login/verify-admin-otp`, payload);
     const data = response.data;
 
     if (data.token) {

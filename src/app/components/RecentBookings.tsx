@@ -6,7 +6,7 @@ import { useBookings } from '../context/BookingContext';
 
 const getStatusConfig = (tBookings: any) => ({
   confirmed: { label: tBookings.confirmed, icon: CheckCircle, bgClass: 'bg-emerald-100', textClass: 'text-emerald-700' },
-  validated: { label: tBookings.validated || tBookings.confirmed, icon: CheckCircle, bgClass: 'bg-emerald-100', textClass: 'text-emerald-700' },
+  validated: { label: tBookings.confirmed, icon: CheckCircle, bgClass: 'bg-emerald-100', textClass: 'text-emerald-700' },
   completed: { label: tBookings.completed, icon: CheckCircle, bgClass: 'bg-emerald-100', textClass: 'text-emerald-700' },
   pending:   { label: tBookings.pending,   icon: Pending,     bgClass: 'bg-amber-100',   textClass: 'text-amber-700'   },
   ready_for_agency: { label: tBookings.ready_for_agency, icon: Pending, bgClass: 'bg-amber-100', textClass: 'text-amber-700' },

@@ -108,20 +108,35 @@ export interface Booking {
   status: 'pending' | 'confirmed' | 'validated' | 'ready_for_agency' | 'completed' | 'cancelled';
   payment_status: 'pending' | 'under_review' | 'paid' | 'failed' | 'refunded';
   deposit_amount?: number;
+  receipt_url?: string;
   created_at?: string;
 }
 
-export type BookingStatus = 'pending' | 'confirmed' | 'validated' | 'ready_for_agency' | 'completed' | 'cancelled';
+export type BookingStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'validated'
+  | 'ready_for_agency'
+  | 'completed'
+  | 'cancelled';
+
 export type PaymentStatus = 'pending' | 'under_review' | 'paid' | 'failed' | 'refunded';
+
+/** Workflow statuses for PATCH /bookings/{id}/status */
+export type WorkflowBookingStatus = 'pending' | 'confirmed' | 'ready_for_agency' | 'completed';
+
+export type WorkflowPaymentStatus = 'pending' | 'paid' | 'failed';
 
 export interface BookingCreateRequest {
   offer_id: string;
   total_price: number;
-  payment_method: 'CIB' | 'Dahabiya' | 'Pay at agency';
+  payment_method: string;
+  receipt_url?: string;
 }
 
 export interface BookingStatusUpdateRequest {
-  status: BookingStatus;
-  payment_status?: PaymentStatus;
+  status: WorkflowBookingStatus | BookingStatus;
+  payment_status?: WorkflowPaymentStatus | PaymentStatus;
   deposit_amount?: number;
+  receipt_url?: string;
 }

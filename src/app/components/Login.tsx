@@ -1,6 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Email, Lock, ArrowForward, Language as LanguageIcon, Check } from '@mui/icons-material';
+import { Email, Lock, ArrowForward, Language as LanguageIcon, Check, PhoneAndroid } from '@mui/icons-material';
+import {
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+} from 'firebase/auth';
+import { auth } from '../services/firebase';
 import logo from '../../assets/buraq-blue.png';
 import { authService } from '../services/authService';
 import { useLanguage } from '../context/LanguageContext';
@@ -16,19 +22,42 @@ const languageOptions: { code: Language; label: string; flag: string }[] = [
   { code: 'ar', label: 'العربية', flag: '🇩🇿' },
 ];
 
+// Steps of the login flow
+type Step = 'credentials' | 'sending_otp' | 'verify_otp';
+
 export function Login({ onLoginSuccess }: LoginProps) {
   const { t, language, setLanguage, isRTL } = useLanguage();
+
+  // Form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
-  const [code, setCode] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+
+  // Firebase / 2FA state
+  const [step, setStep] = useState<Step>('credentials');
+  const [phone, setPhone] = useState('');
   const [twoFactorToken, setTwoFactorToken] = useState('');
-  const [firebaseIdToken, setFirebaseIdToken] = useState('');
-  const [showOtp, setShowOtp] = useState(false);
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+
+  // UI state
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
 
+  const recaptchaRef = useRef<HTMLDivElement>(null);
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+
+  // Clean up reCAPTCHA when component unmounts
+  useEffect(() => {
+    return () => {
+      if (recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current.clear();
+        recaptchaVerifierRef.current = null;
+      }
+    };
+  }, []);
+
+  // ── Step 1: Email/Password Login ─────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -36,76 +65,146 @@ export function Login({ onLoginSuccess }: LoginProps) {
 
     try {
       const response = await authService.login({ email, password });
-      
-      // If backend signals that OTP is required
-      if (response.requiresOtp || response.requiresTwoFactor || response.twoFactorToken) {
+
+      if (
+        (response.requiresOtp || response.requiresTwoFactor) &&
+        response.otpProvider === 'firebase' &&
+        response.phone
+      ) {
+        // Store token + phone, then trigger Firebase SMS
         setTwoFactorToken(response.twoFactorToken || '');
-        setFirebaseIdToken('');
-        setShowOtp(true);
+        
+        // Normalize phone number (e.g. 0782129630 -> +213782129630)
+        let formattedPhone = response.phone.replace(/\s+/g, '');
+        if (formattedPhone.startsWith('0') && !formattedPhone.startsWith('00')) {
+          formattedPhone = '+213' + formattedPhone.slice(1);
+        } else if (formattedPhone.startsWith('213') && !formattedPhone.startsWith('+')) {
+          formattedPhone = '+' + formattedPhone;
+        }
+        
+        setPhone(formattedPhone);
+        setStep('sending_otp');
+
+        await triggerFirebaseOtp(formattedPhone);
+        setStep('verify_otp');
         return;
       }
 
-      // Normal flow if no OTP required
-      const profile = await authService.getCurrentUser();
-      const role = String(profile?.user?.role || profile?.role || '').toLowerCase().replace(/[_ ]/g, '');
-      const fullUser = profile?.user || profile || {};
-      localStorage.setItem('user', JSON.stringify(fullUser));
-
-      if (role === 'admin' || role === 'superadmin') {
-        onLoginSuccess();
-      } else {
-        await authService.logout();
-        setError(t.login.accessDenied);
-      }
+      // Normal flow (non-agency admins, or if no 2FA needed)
+      await finalizeLogin();
     } catch (err: any) {
-      setError(err.response?.data?.message || t.login.invalidCredentials);
+      setError(err.response?.data?.message || err.message || t.login.invalidCredentials);
+      setStep('credentials');
     } finally {
       setIsLoading(false);
     }
   };
 
+  // ── Firebase: send SMS via RecaptchaVerifier ─────────────────────────────
+  const triggerFirebaseOtp = async (phoneNumber: string) => {
+    // Clear any previous verifier
+    if (recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current.clear();
+      recaptchaVerifierRef.current = null;
+    }
+
+    const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      size: 'invisible',
+    });
+    recaptchaVerifierRef.current = verifier;
+
+    const result = await signInWithPhoneNumber(auth, phoneNumber, verifier);
+    setConfirmationResult(result);
+  };
+
+  // ── Step 2: Confirm OTP and complete login ───────────────────────────────
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
 
     try {
-      await authService.verifyAdmin2FA({
-        twoFactorToken,
-        ...(firebaseIdToken ? { firebaseIdToken } : {}),
-        ...(otp ? { otp } : {}),
-        ...(code ? { code } : {}),
-      });
-      
-      // Fetch full profile after 2FA to ensure we have the correct role and data
-      const profile = await authService.getCurrentUser();
-      const role = String(profile?.user?.role || profile?.role || '').toLowerCase().replace(/[_ ]/g, '');
-      const fullUser = profile?.user || profile || {};
-      localStorage.setItem('user', JSON.stringify(fullUser));
+      if (!confirmationResult) throw new Error('OTP session expired. Please go back and try again.');
 
-      if (role === 'admin' || role === 'superadmin') {
-        onLoginSuccess();
-      } else {
-        await authService.logout();
-        setError(t.login.accessDenied);
-      }
+      // Confirm OTP with Firebase
+      const result = await confirmationResult.confirm(otpCode);
+      const firebaseIdToken = await result.user.getIdToken();
+
+      // Send Firebase ID token + twoFactorToken to backend
+      await authService.verifyAdmin2FA({ twoFactorToken, firebaseIdToken });
+
+      await finalizeLogin();
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid verification codes. Please try again.');
+      const msg = err?.code === 'auth/invalid-verification-code'
+        ? 'Invalid OTP code. Please try again.'
+        : err?.code === 'auth/code-expired'
+        ? 'OTP code expired. Please go back and request a new one.'
+        : err?.response?.data?.message || err?.message || 'Verification failed. Please try again.';
+      setError(msg);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // ── Shared: fetch profile and admit if admin/superAdmin ──────────────────
+  const finalizeLogin = async () => {
+    const profile = await authService.getCurrentUser();
+    const role = String(profile?.user?.role || profile?.role || '').toLowerCase().replace(/[_ ]/g, '');
+    const fullUser = profile?.user || profile || {};
+    localStorage.setItem('user', JSON.stringify(fullUser));
+
+    if (role === 'admin' || role === 'superadmin') {
+      onLoginSuccess();
+    } else {
+      await authService.logout();
+      setError(t.login.accessDenied);
+    }
+  };
+
+  // ── Resend OTP ───────────────────────────────────────────────────────────
+  const handleResendOtp = async () => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      setStep('sending_otp');
+      await triggerFirebaseOtp(phone);
+      setOtpCode('');
+      setStep('verify_otp');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to resend OTP. Please go back and try again.');
+      setStep('verify_otp');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Go back to credentials ───────────────────────────────────────────────
+  const handleBack = () => {
+    setStep('credentials');
+    setOtpCode('');
+    setError(null);
+    setConfirmationResult(null);
+    if (recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current.clear();
+      recaptchaVerifierRef.current = null;
     }
   };
 
   const inputClass = `w-full py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 text-gray-900 transition-all placeholder:text-gray-400 font-medium ${isRTL ? 'pr-11 pl-4 text-right' : 'pl-11 pr-4 text-left'}`;
   const iconClass = `absolute top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600 transition-colors ${isRTL ? 'right-4' : 'left-4'}`;
 
+  const showOtpForm = step === 'verify_otp' || step === 'sending_otp';
+
   return (
     <div className={`flex min-h-screen bg-white ${isRTL ? 'flex-row-reverse' : 'flex-row'}`}>
-      
-      {/* Left/Main Column - Login Form */}
+
+      {/* Invisible reCAPTCHA container — must always be in DOM */}
+      <div id="recaptcha-container" ref={recaptchaRef}></div>
+
+      {/* Left/Main Column */}
       <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 sm:px-16 md:px-24 xl:px-32 relative">
 
-        {/* Language Switcher — top corner */}
+        {/* Language Switcher */}
         <div className={`absolute top-8 ${isRTL ? 'left-8 sm:left-16' : 'right-8 sm:right-16'} z-50`}>
           <div className="relative">
             <motion.button
@@ -180,7 +279,8 @@ export function Login({ onLoginSuccess }: LoginProps) {
           )}
 
           <AnimatePresence mode="wait">
-            {!showOtp ? (
+            {/* ── STEP: credentials ─────────────────────────────── */}
+            {!showOtpForm ? (
               <motion.form
                 key="login-form"
                 initial={{ opacity: 0, x: -20 }}
@@ -257,7 +357,9 @@ export function Login({ onLoginSuccess }: LoginProps) {
                   )}
                 </motion.button>
               </motion.form>
+
             ) : (
+              /* ── STEP: sending_otp / verify_otp ───────────────── */
               <motion.form
                 key="otp-form"
                 initial={{ opacity: 0, x: 20 }}
@@ -269,75 +371,79 @@ export function Login({ onLoginSuccess }: LoginProps) {
               >
                 <div className="text-center mb-6">
                   <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-50 text-blue-600 rounded-full mb-4">
-                    <Lock fontSize="large" />
+                    <PhoneAndroid fontSize="large" />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900">Security Verification</h3>
-                  <p className="text-gray-500 text-sm mt-2">
-                    Please enter the 6-digit verification code sent to your email.
-                  </p>
+                  <h3 className="text-xl font-bold text-gray-900">Phone Verification</h3>
+                  {step === 'sending_otp' ? (
+                    <p className="text-gray-500 text-sm mt-2 flex items-center justify-center gap-2">
+                      <span className="w-4 h-4 border-2 border-blue-400/40 border-t-blue-600 rounded-full animate-spin inline-block"></span>
+                      Sending code to {phone}…
+                    </p>
+                  ) : (
+                    <p className="text-gray-500 text-sm mt-2">
+                      Enter the 6-digit verification code sent to your phone{' '}
+                      <span className="font-semibold text-gray-700">{phone}</span>
+                    </p>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
-                      OTP Code
-                    </label>
-                    <div className="relative group">
-                      <Lock className={iconClass} fontSize="small" />
-                      <input
-                        type="text"
-                        required
-                        maxLength={6}
-                        value={otp}
-                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                        className={`${inputClass} tracking-widest text-center font-bold`}
-                        placeholder="••••••"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
-                      Security Code
-                    </label>
-                    <div className="relative group">
-                      <Lock className={iconClass} fontSize="small" />
-                      <input
-                        type="text"
-                        required
-                        maxLength={6}
-                        value={code}
-                        onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                        className={`${inputClass} tracking-widest text-center font-bold`}
-                        placeholder="••••••"
-                      />
-                    </div>
+                {/* Single OTP input */}
+                <div>
+                  <label className={`block text-sm font-semibold text-gray-700 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
+                    Verification Code
+                  </label>
+                  <div className="relative group">
+                    <Lock className={iconClass} fontSize="small" />
+                    <input
+                      id="otp-input"
+                      type="text"
+                      inputMode="numeric"
+                      required
+                      maxLength={6}
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                      className={`${inputClass} tracking-[0.6em] text-center font-bold text-xl`}
+                      placeholder="••••••"
+                      autoComplete="one-time-code"
+                      disabled={step === 'sending_otp'}
+                    />
                   </div>
                 </div>
 
                 <motion.button
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
-                  disabled={isLoading || (otp.length < 6 && code.length < 6)}
+                  type="submit"
+                  disabled={isLoading || otpCode.length < 6 || step === 'sending_otp'}
                   className={`w-full mt-4 py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70 group ${isRTL ? 'flex-row-reverse' : ''}`}
                 >
                   {isLoading ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   ) : (
                     <>
-                      <span>Verify & Access Dashboard</span>
+                      <span>Verify &amp; Access Dashboard</span>
                       <ArrowForward fontSize="small" className={`${isRTL ? 'group-hover:-translate-x-1 rotate-180' : 'group-hover:translate-x-1'} transition-transform`} />
                     </>
                   )}
                 </motion.button>
 
-                <button
-                  type="button"
-                  onClick={() => { setShowOtp(false); setOtp(''); }}
-                  className="w-full text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors py-2"
-                >
-                  Back to login
-                </button>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    ← Back to login
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={isLoading || step === 'sending_otp'}
+                    className="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors disabled:opacity-50"
+                  >
+                    Resend code
+                  </button>
+                </div>
               </motion.form>
             )}
           </AnimatePresence>
@@ -351,7 +457,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
         </motion.div>
       </div>
 
-      {/* Right Column - Hero Image (hides on mobile) */}
+      {/* Right Column — Hero */}
       <div className="hidden lg:block w-1/2 relative bg-gray-900 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/40 to-transparent z-10"></div>
         <img

@@ -31,7 +31,8 @@ api.interceptors.response.use(
     const data = error.response?.data;
     console.error(`API Error [${status}]:`, data ? JSON.stringify(data, null, 2) : error.message);
 
-    if (status === 401) {
+    const isLoginRequest = error.config?.url?.includes('/login');
+    if (status === 401 && !isLoginRequest) {
       // Unauthenticated — token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('user');

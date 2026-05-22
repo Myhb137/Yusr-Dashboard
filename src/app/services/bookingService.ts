@@ -1,11 +1,6 @@
 import api from './api';
-import {
-  Booking,
-  BookingCreateRequest,
-  BookingStatus,
-  BookingStatusUpdateRequest,
-  PaymentStatus,
-} from '../types/api';
+import { Booking, BookingCreateRequest, BookingStatusUpdateRequest } from '../types/api';
+import type { BookingStatusUpdatePayload } from '../utils/bookingStatus';
 
 const BOOKINGS_ENDPOINT = import.meta.env.VITE_API_BOOKINGS_ENDPOINT || '/api/v1/bookings';
 
@@ -26,24 +21,26 @@ export const bookingService = {
     return response.data;
   },
 
-  /**
-   * PUT /api/v1/bookings/{id}/status
-   * Unified endpoint: always sends status, payment_status, and deposit_amount together.
-   * - When a user books: status=pending, payment_status=pending, deposit_amount=0
-   * - When admin validates fee payment: status=confirmed, payment_status=paid, deposit_amount=<amount>
-   */
-  updateBookingStatus: async (
-    id: string,
-    status: BookingStatus,
-    paymentStatus: PaymentStatus = 'pending',
-    depositAmount: number = 0
-  ) => {
-    const payload: BookingStatusUpdateRequest = {
-      status,
-      payment_status: paymentStatus,
-      deposit_amount: depositAmount,
+  /** PUT /api/v1/bookings/{id}/status (OpenAPI — not PATCH) */
+  updateBookingStatus: async (id: string, payload: BookingStatusUpdatePayload) => {
+    if (!payload.status) {
+      throw new Error('status is required for PUT /api/v1/bookings/{id}/status');
+    }
+
+    const body: BookingStatusUpdateRequest = {
+      status: payload.status as BookingStatusUpdateRequest['status'],
     };
-    const response = await api.put(`${BOOKINGS_ENDPOINT}/${id}/status`, payload);
+    if (payload.payment_status !== undefined) {
+      body.payment_status = payload.payment_status;
+    }
+    if (payload.deposit_amount !== undefined) {
+      body.deposit_amount = payload.deposit_amount;
+    }
+    if (payload.receipt_url !== undefined) {
+      body.receipt_url = payload.receipt_url;
+    }
+
+    const response = await api.put(`${BOOKINGS_ENDPOINT}/${id}/status`, body);
     return response.data;
   },
 };

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { NavLink } from 'react-router';
 import { motion } from 'motion/react';
 import bouraqLogo from '../../assets/buraq-blue.png';
 import {
@@ -17,12 +18,10 @@ import { useLanguage } from '../context/LanguageContext';
 interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
-  activeTab: string;
-  onTabChange: (tab: string) => void;
   onLogout: () => void;
 }
 
-export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, onLogout }: SidebarProps) {
   const { t, isRTL } = useLanguage();
   const [user, setUser] = useState<any>(() => authService.getStoredUser());
 
@@ -41,15 +40,15 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: 
   }, []);
 
   const menuItems = [
-    { id: 'overview', label: t.sidebar.overview, icon: Dashboard },
-    { id: 'offers', label: t.sidebar.myOffers, icon: Inventory2 },
-    { id: 'bookings', label: t.sidebar.bookings, icon: People },
-    { id: 'analytics', label: t.sidebar.analytics, icon: TrendingUp },
-    { id: 'settings', label: t.sidebar.settings, icon: Settings },
+    { path: '/overview', label: t.sidebar.overview, icon: Dashboard },
+    { path: '/offers', label: t.sidebar.myOffers, icon: Inventory2 },
+    { path: '/bookings', label: t.sidebar.bookings, icon: People },
+    { path: '/analytics', label: t.sidebar.analytics, icon: TrendingUp },
+    { path: '/settings', label: t.sidebar.settings, icon: Settings },
   ];
 
   const superAdminOnlyItems = [
-    { id: 'admins', label: t.sidebar.platformManagement, icon: AdminPanelSettings },
+    { path: '/admins', label: t.sidebar.platformManagement, icon: AdminPanelSettings },
   ];
 
   const currentRole = String(user?.role || user?.user_metadata?.role || user?.app_metadata?.role || '').toLowerCase().replace(/[_ ]/g, '');
@@ -57,7 +56,6 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: 
 
   return (
     <>
-      {/* Mobile Overlay */}
       {isOpen && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -68,14 +66,12 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: 
         />
       )}
 
-      {/* Sidebar */}
       <motion.aside
         initial={false}
         animate={{ x: isOpen ? 0 : (isRTL ? 300 : -300) }}
         transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-        className={`fixed lg:relative inset-y-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} w-72 bg-white/80 backdrop-blur-xl border-gray-200/50 shadow-xl z-50 flex flex-col lg:translate-x-0`}
+        className={`fixed lg:relative inset-y-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} w-72 bg-white/80 backdrop-blur-xl border-gray-200/50 shadow-xl z-50 flex flex-col lg:translate-x-0 shrink-0`}
       >
-        {/* Logo Area */}
         <div className="p-6 border-b border-gray-200/50">
           <div className={`flex items-center justify-between ${isRTL ? 'flex-row-reverse' : ''}`}>
             <div>
@@ -83,6 +79,7 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: 
               <p className="text-xs text-gray-500 mt-1">{t.sidebar.agencyPortal}</p>
             </div>
             <button
+              type="button"
               onClick={onToggle}
               className="lg:hidden p-2 hover:bg-gray-100 rounded-xl transition-colors"
             >
@@ -91,37 +88,46 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: 
           </div>
         </div>
 
-        {/* Navigation Menu */}
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {allItems.map((item, index) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
 
             return (
-              <motion.button
-                key={item.id}
-                onClick={() => onTabChange(item.id)}
-                initial={{ opacity: 0, x: isRTL ? 20 : -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                whileHover={{ scale: 1.02, x: isRTL ? -4 : 4 }}
-                whileTap={{ scale: 0.98 }}
-                className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${
-                  isRTL ? 'flex-row-reverse text-right' : 'text-left'
-                } ${
-                  isActive
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
+              <NavLink
+                key={item.path}
+                to={item.path}
+                onClick={() => {
+                  if (window.innerWidth < 1024) onToggle();
+                }}
+                className={({ isActive }) =>
+                  `w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${
+                    isRTL ? 'flex-row-reverse text-right' : 'text-left'
+                  } ${
+                    isActive
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`
+                }
               >
-                <Icon className="text-2xl shrink-0" />
-                <span className="font-medium">{item.label}</span>
-              </motion.button>
+                {({ isActive }) => (
+                  <motion.span
+                    initial={{ opacity: 0, x: isRTL ? 20 : -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    whileHover={{ scale: 1.02, x: isRTL ? -4 : 4 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`w-full flex items-center gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}
+                  >
+                    <Icon className="text-2xl shrink-0" />
+                    <span className="font-medium">{item.label}</span>
+                    {isActive && <span className="sr-only"> (current)</span>}
+                  </motion.span>
+                )}
+              </NavLink>
             );
           })}
         </nav>
 
-        {/* User Profile Section */}
         <div className="p-4 border-t border-gray-200/50">
           <motion.div
             whileHover={{ scale: 1.02 }}
@@ -137,6 +143,7 @@ export function Sidebar({ isOpen, onToggle, activeTab, onTabChange, onLogout }: 
           </motion.div>
 
           <motion.button
+            type="button"
             onClick={onLogout}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
