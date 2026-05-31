@@ -117,7 +117,7 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
 
         // Co-fetch offers and bookings in parallel — no sequential waterfall
         const [offersArray, bookingsArray] = await Promise.all([
-          offerService.getDashboardOffers(tenant) as Promise<any[]>,
+          offerService.getDashboardOffers(tenant),
           bookingService.getDashboardBookings(tenant) as Promise<any[]>,
         ]);
 

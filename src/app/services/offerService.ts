@@ -3,9 +3,7 @@ import { Offer } from '../types/api';
 import { isSuperAdmin } from '../utils/authRole';
 import {
   normalizeOffersList,
-  registerCreatedOfferResponse,
   resolveAdminTenant,
-  filterOffersForAdmin,
   type AdminTenantContext,
 } from '../utils/tenantScope';
 
@@ -136,23 +134,15 @@ export const offerService = {
     return Array.isArray(data) ? data : (data?.offers || data?.data || []);
   },
 
-  /** Offers scoped to the logged-in agency admin; super admin sees all. */
+  /** Offers scoped to the logged-in agency admin; always from DB — no localStorage fallback. */
   getDashboardOffers: async (
-    tenant?: AdminTenantContext,
-    bookingsHint?: unknown[]
+    tenant?: AdminTenantContext
   ): Promise<Offer[]> => {
     const scope = tenant ?? (await resolveAdminTenant());
-
-    // Fetch from global endpoint because backend currently lacks an agency scoping endpoint
-    const response = await api.get(OFFERS_ENDPOINT);
-    const allOffers = normalizeOffersList(response.data);
-
-    if (isSuperAdmin(scope.role)) {
-      return allOffers as Offer[];
-    }
-
-    // Agency admin: filter client-side until backend implements /api/v1/offers/agency/{id}
-    return filterOffersForAdmin(allOffers, scope, bookingsHint) as Offer[];
+    // Always fetch from DB: superadmin gets all offers, agency admin gets only their own.
+    const endpoint = isSuperAdmin(scope.role) ? OFFERS_ENDPOINT : `${OFFERS_ENDPOINT}/mine`;
+    const response = await api.get(endpoint);
+    return normalizeOffersList(response.data) as Offer[];
   },
 
   getOfferDetails: async (id: string): Promise<Offer> => {
@@ -177,12 +167,10 @@ export const offerService = {
     if (options?.imageFile) {
       const fd = buildOfferFormData(body, options.imageFile, ownerId);
       const response = await api.post(OFFERS_ENDPOINT, fd);
-      registerCreatedOfferResponse(response.data);
       return response.data;
     }
 
     const response = await api.post(OFFERS_ENDPOINT, payload);
-    registerCreatedOfferResponse(response.data);
     return response.data;
   },
 
