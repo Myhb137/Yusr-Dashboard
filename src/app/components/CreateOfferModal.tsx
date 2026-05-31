@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Close,
@@ -32,25 +32,53 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
   const m = t.modal;
 
   const [formData, setFormData] = useState({
-    name: offer?.title || offer?.name || '',
-    destination: offer?.location || offer?.destination || '',
-    type: offer?.type || 'standard',
-    price: offer?.total_price?.toString() || offer?.price?.toString().replace(' DZD', '').replace('$', '').replace(',', '') || '',
-    duration: offer?.duration?.toString()?.replace(' days', '') || '',
-    maxPeople: offer?.places?.toString() || '15',
-    description: offer?.description || '',
-    highlights: offer?.amenities?.length ? offer.amenities : [''],
+    name: '',
+    destination: '',
+    type: 'standard',
+    price: '',
+    duration: '',
+    maxPeople: '15',
+    description: '',
+    highlights: [''],
     inclusions: ['flights', 'hotel'] as string[],
-    itinerary: offer?.itinerary?.length
-      ? offer.itinerary.map((it: string, i: number) => ({ day: i + 1, title: '', description: it }))
-      : [{ day: 1, title: '', description: '' }],
-    status: offer?.available === false ? 'draft' : 'active',
+    itinerary: [{ day: 1, title: '', description: '' }],
+    status: 'active',
   });
 
   const [images, setImages] = useState<string[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sync prop updates when the modal is opened or the target offer changes
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        name: offer?.title || offer?.name || '',
+        destination: offer?.location || offer?.destination || '',
+        type: offer?.type || 'standard',
+        price: offer?.total_price?.toString() || offer?.price?.toString().replace(' DZD', '').replace('$', '').replace(',', '') || '',
+        duration: offer?.duration?.toString()?.replace(' days', '') || '',
+        maxPeople: offer?.places?.toString() || '15',
+        description: offer?.description || '',
+        highlights: offer?.amenities?.length ? offer.amenities : [''],
+        inclusions: ['flights', 'hotel'] as string[],
+        itinerary: offer?.itinerary?.length
+          ? offer.itinerary.map((it: string, i: number) => {
+              const match = String(it).match(/^Day \d+ – (.*?): (.*)$/);
+              if (match) {
+                return { day: i + 1, title: match[1], description: match[2] };
+              }
+              return { day: i + 1, title: '', description: it };
+            })
+          : [{ day: 1, title: '', description: '' }],
+        status: offer?.available === false ? 'draft' : 'active',
+      });
+      setImages(offer?.image_url || offer?.image ? [offer.image_url || offer.image] : []);
+      setImageFile(null);
+      setError(null);
+    }
+  }, [offer, isOpen]);
 
   if (!isOpen) return null;
 

@@ -406,12 +406,14 @@ export function Bookings() {
                 </div>
               </div>
 
-              <PaymentReceiptView
-                bookingId={selectedBooking.id}
-                receiptUrl={selectedBooking.depositReceiptUrl || selectedBooking.receiptUrl}
-                superAdminOnly
-                isSuperAdmin={superAdmin}
-              />
+              {superAdmin && (
+                <PaymentReceiptView
+                  bookingId={selectedBooking.id}
+                  receiptUrl={selectedBooking.depositReceiptUrl || selectedBooking.receiptUrl}
+                  superAdminOnly
+                  isSuperAdmin={superAdmin}
+                />
+              )}
 
               <div className="pt-4 border-t border-gray-100">
                 <BookingWorkflowPanel

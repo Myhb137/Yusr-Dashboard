@@ -1,7 +1,7 @@
 import api from './api';
 
-const AUTH_NOTIFICATIONS_ENDPOINT = '/api/v1/auth';
-const NOTIFICATIONS_ENDPOINT = '/api/v1/notifications';
+const AUTH_NOTIFICATIONS_ENDPOINT = import.meta.env.VITE_API_AUTH_ENDPOINT || '/api/v1/auth';
+const NOTIFICATIONS_ENDPOINT = import.meta.env.VITE_API_NOTIFICATIONS || '/api/v1/notifications';
 
 export const notificationService = {
   /** Register FCM token for push notifications */

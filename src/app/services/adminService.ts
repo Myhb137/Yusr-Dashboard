@@ -2,8 +2,8 @@ import api from './api';
 import { User } from '../types/api';
 
 const ADMIN_STATS_ENDPOINT = import.meta.env.VITE_API_ANALYTICS_ENDPOINT || '/api/v1/admin/stats';
-const ADMIN_USERS_ENDPOINT = '/api/v1/admin/users';
-const ADMIN_ADMINS_ENDPOINT = '/api/v1/admin/admins';
+const ADMIN_USERS_ENDPOINT = import.meta.env.VITE_API_ADMIN_USERS || '/api/v1/admin/users';
+const ADMIN_ADMINS_ENDPOINT = import.meta.env.VITE_API_ADMIN_ADMINS || '/api/v1/admin/admins';
 
 export const adminService = {
   getStats: async () => {
@@ -77,7 +77,8 @@ export const adminService = {
   },
 
   broadcastNotification: async (notificationData: any) => {
-    const response = await api.post('/api/v1/admin/notifications/broadcast', notificationData);
+    const endpoint = import.meta.env.VITE_API_ADMIN_NOTIFICATIONS_BROADCAST || '/api/v1/admin/notifications/broadcast';
+    const response = await api.post(endpoint, notificationData);
     return response.data;
   },
 };

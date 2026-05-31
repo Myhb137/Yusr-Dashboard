@@ -40,21 +40,27 @@ function mapApiError(err: unknown, context: BookingWorkflowState, payload: unkno
     response?: { status?: number; data?: { message?: string; error?: string } };
   };
 
-  if (ax.response?.status === 403) {
-    throw new Error(ax.response.data?.message || ax.response.data?.error || 'Forbidden');
+  const status = ax.response?.status;
+  const rawMsg = String(ax.response?.data?.message || ax.response?.data?.error || '');
+
+  if (status === 401) {
+    throw new Error('Your session has expired. Please log in again.');
   }
-  if (ax.response?.status === 404) {
-    throw new Error('PUT /api/v1/bookings/{id}/status not found.');
+  if (status === 403) {
+    throw new Error('Permission denied. You do not have authorization to perform this action.');
   }
-  if (isStatusCheckError(err)) {
+  if (status === 404) {
+    throw new Error('The booking record could not be found.');
+  }
+  if (isStatusCheckError(err) || rawMsg.includes('bookings_status_check')) {
     throw new Error(
-      `Server rejected this transition (bookings_status_check). ` +
-        `Current API state: status="${context.status}", payment_status="${context.paymentStatus ?? 'none'}". ` +
-        `Sent: ${JSON.stringify(payload)}. ` +
-        `Allowed chain: pending → confirmed → validated → ready_for_agency → completed.`
+      'This action is not allowed for the current booking state. ' +
+      'Please verify that the booking lifecycle steps are followed in order: ' +
+      'Pending → Confirmed → Validated (which requires verifying payment first) → Ready for Agency → Completed.'
     );
   }
-  throw err;
+  
+  throw new Error(ax.response?.data?.message || ax.response?.data?.error || 'Failed to update booking status. Please try again.');
 }
 
 async function loadFreshBookingState(bookingId: string): Promise<BookingForWorkflowUpdate> {

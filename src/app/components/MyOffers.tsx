@@ -12,10 +12,25 @@ import {
   Drafts,
   DeleteOutline,
   WarningAmberRounded,
+  People,
+  ExpandMore,
+  ExpandLess,
+  Email as EmailIcon,
+  Phone as PhoneIcon,
+  AttachMoney,
+  PersonOutline,
 } from '@mui/icons-material';
 import { OfferCard } from './OfferCard';
 import { offerService } from '../services/offerService';
+import { bookingService } from '../services/bookingService';
 import { resolveAdminTenant } from '../utils/tenantScope';
+import {
+  joinOffersWithBookers,
+  type OfferWithBookers,
+  type BookerInfo,
+} from '../utils/tenantScope';
+
+// ─── Local offer shape ────────────────────────────────────────
 
 interface Offer {
   id: number;
@@ -36,7 +51,45 @@ interface MyOffersProps {
   refreshTrigger: number;
 }
 
+// ─── Status badge colours ─────────────────────────────────────
+
+function bookingStatusClass(status: string): string {
+  switch (status) {
+    case 'confirmed':
+    case 'validated':
+    case 'completed':
+      return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    case 'pending':
+    case 'ready_for_agency':
+      return 'bg-amber-100 text-amber-700 border-amber-200';
+    case 'cancelled':
+      return 'bg-red-100 text-red-700 border-red-200';
+    default:
+      return 'bg-gray-100 text-gray-600 border-gray-200';
+  }
+}
+
+function paymentStatusClass(status: string | null): string {
+  switch (status) {
+    case 'paid':
+      return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    case 'under_review':
+      return 'bg-amber-100 text-amber-700 border-amber-200';
+    case 'failed':
+      return 'bg-red-100 text-red-700 border-red-200';
+    case 'refunded':
+      return 'bg-purple-100 text-purple-700 border-purple-200';
+    default:
+      return 'bg-gray-100 text-gray-500 border-gray-200';
+  }
+}
+
+
+
+// ─── Main component ───────────────────────────────────────────
+
 export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffersProps) {
+  const [offerRows, setOfferRows] = useState<OfferWithBookers[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +98,9 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'draft' | 'paused'>('all');
 
-  // Delete confirmation modal state
+
+
+  // Delete modal state
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; offer: Offer | null; isDeleting: boolean }>({
     open: false,
     offer: null,
@@ -53,26 +108,58 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
   });
 
   useEffect(() => {
-    const fetchOffers = async () => {
+    const fetchData = async () => {
       try {
         setIsLoading(true);
-        
-        const tenant = await resolveAdminTenant();
-        const offersArray = (await offerService.getDashboardOffers(tenant)) as any[];
+        setError(null);
 
-        const mappedOffers = offersArray.map((offer: any) => ({
-          ...offer,
-          id: offer.id || offer._id,
-          name: offer.title || offer.name || 'Untitled Offer',
-          destination: offer.location || offer.destination || 'Unknown Location',
-          image: offer.image_url || offer.image || 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?q=80&w=1080&auto=format&fit=crop',
-          price: offer.total_price !== undefined ? `${offer.total_price} DZD` : (typeof offer.price === 'number' ? `${offer.price} DZD` : (offer.price ? String(offer.price).replace('$', '') + ' DZD' : '0 DZD')),
-          duration: typeof offer.duration === 'number' ? `${offer.duration} days` : offer.duration || '0 days',
-          bookings: offer.places || offer.bookings || 0,
-          rating: offer.rating || 0,
-          status: offer.available === true ? 'active' : (offer.available === false ? 'paused' : (offer.status || 'draft')),
-          category: offer.type || offer.category || 'Standard',
-        }));
+        const tenant = await resolveAdminTenant();
+
+        // Co-fetch offers and bookings in parallel — no sequential waterfall
+        const [offersArray, bookingsArray] = await Promise.all([
+          offerService.getDashboardOffers(tenant) as Promise<any[]>,
+          bookingService.getDashboardBookings(tenant) as Promise<any[]>,
+        ]);
+
+        // Join offers with their bookers (pure client-side, no extra network calls)
+        const joined = joinOffersWithBookers(offersArray, bookingsArray);
+        setOfferRows(joined);
+
+        // Map offer shape for OfferCard
+        const mappedOffers = offersArray.map((offer: any) => {
+          const offerId = String(offer.id || offer._id);
+          const joinedRow = joined.find((r) => String(r.offer.id ?? r.offer._id) === offerId);
+          const actualBookingCount = joinedRow ? joinedRow.bookingCount : 0;
+          return {
+            ...offer,
+            id: offer.id || offer._id,
+            name: offer.title || offer.name || 'Untitled Offer',
+            destination: offer.location || offer.destination || 'Unknown Location',
+            image:
+              offer.image_url ||
+              offer.image ||
+              'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?q=80&w=1080&auto=format&fit=crop',
+            price:
+              offer.total_price !== undefined
+                ? `${offer.total_price} DZD`
+                : typeof offer.price === 'number'
+                ? `${offer.price} DZD`
+                : offer.price
+                ? String(offer.price).replace('$', '') + ' DZD'
+                : '0 DZD',
+            duration:
+              typeof offer.duration === 'number' ? `${offer.duration} days` : offer.duration || '0 days',
+            bookings: actualBookingCount,
+            rating: offer.rating || 0,
+            status:
+              offer.available === true
+                ? 'active'
+                : offer.available === false
+                ? 'paused'
+                : offer.status || 'draft',
+            category: offer.type || offer.category || 'Standard',
+          };
+        });
         setOffers(mappedOffers);
       } catch (err: any) {
         console.error('Failed to fetch offers:', err);
@@ -81,7 +168,7 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
         setIsLoading(false);
       }
     };
-    fetchOffers();
+    fetchData();
   }, [refreshTrigger]);
 
   const handleDeleteClick = useCallback((offer: Offer) => {
@@ -90,14 +177,15 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteModal.offer) return;
-    setDeleteModal(prev => ({ ...prev, isDeleting: true }));
+    setDeleteModal((prev) => ({ ...prev, isDeleting: true }));
     try {
       await offerService.deleteOffer(deleteModal.offer.id.toString());
-      setOffers(prev => prev.filter(o => o.id !== deleteModal.offer!.id));
+      setOffers((prev) => prev.filter((o) => o.id !== deleteModal.offer!.id));
+      setOfferRows((prev) => prev.filter((r) => String(r.offer.id ?? r.offer._id) !== deleteModal.offer!.id.toString()));
       setDeleteModal({ open: false, offer: null, isDeleting: false });
     } catch (err: any) {
       console.error('Failed to delete offer:', err);
-      setDeleteModal(prev => ({ ...prev, isDeleting: false }));
+      setDeleteModal((prev) => ({ ...prev, isDeleting: false }));
       setError(err.response?.data?.message || 'Failed to delete the offer.');
     }
   }, [deleteModal.offer]);
@@ -105,6 +193,8 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
   const handleDeleteCancel = useCallback(() => {
     if (!deleteModal.isDeleting) setDeleteModal({ open: false, offer: null, isDeleting: false });
   }, [deleteModal.isDeleting]);
+
+
 
   const filteredOffers = useMemo(() => {
     return offers.filter((offer) => {
@@ -117,13 +207,21 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
   }, [offers, searchQuery, selectedStatus]);
 
   const stats = useMemo(() => {
+    const totalBookings = offerRows.reduce((s, r) => s + r.bookingCount, 0);
+    const totalRevenue = offerRows.reduce((s, r) => s + r.totalRevenue, 0);
+    const uniqueCustomers = new Set(
+      offerRows.flatMap((r) => r.bookers.map((b) => b.userId).filter(Boolean))
+    ).size;
     return {
       total: offers.length,
       active: offers.filter((o) => o.status === 'active').length,
       draft: offers.filter((o) => o.status === 'draft').length,
       paused: offers.filter((o) => o.status === 'paused').length,
+      totalBookings,
+      totalRevenue,
+      uniqueCustomers,
     };
-  }, [offers]);
+  }, [offers, offerRows]);
 
   return (
     <div>
@@ -131,7 +229,6 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
       <AnimatePresence>
         {deleteModal.open && (
           <>
-            {/* Backdrop */}
             <motion.div
               key="backdrop"
               initial={{ opacity: 0 }}
@@ -140,8 +237,6 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
               onClick={handleDeleteCancel}
               className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
             />
-
-            {/* Dialog */}
             <motion.div
               key="dialog"
               initial={{ opacity: 0, scale: 0.85, y: 20 }}
@@ -151,26 +246,19 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
               className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
             >
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 pointer-events-auto">
-                {/* Icon */}
                 <div className="flex justify-center mb-5">
                   <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
                     <WarningAmberRounded className="text-red-500" style={{ fontSize: 36 }} />
                   </div>
                 </div>
-
-                {/* Text */}
                 <h2 className="text-xl font-bold text-gray-900 text-center mb-2">Delete Offer</h2>
-                <p className="text-gray-500 text-center mb-1">
-                  Are you sure you want to delete
-                </p>
+                <p className="text-gray-500 text-center mb-1">Are you sure you want to delete</p>
                 <p className="text-center font-semibold text-gray-900 mb-6 truncate px-4">
                   "{deleteModal.offer?.name}"?
                 </p>
                 <p className="text-sm text-red-500 text-center mb-8 bg-red-50 rounded-xl py-2 px-4">
                   This action <strong>cannot be undone</strong>. All data for this offer will be permanently removed.
                 </p>
-
-                {/* Buttons */}
                 <div className="flex gap-3">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
@@ -186,7 +274,7 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
                     whileTap={{ scale: 0.98 }}
                     onClick={handleDeleteConfirm}
                     disabled={deleteModal.isDeleting}
-                    className="flex-1 px-5 py-3 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold shadow-lg shadow-red-500/30 hover:shadow-xl hover:shadow-red-500/40 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
+                    className="flex-1 px-5 py-3 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold shadow-lg shadow-red-500/30 hover:shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70"
                   >
                     {deleteModal.isDeleting ? (
                       <>
@@ -207,81 +295,74 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
         )}
       </AnimatePresence>
 
-      {/* Stats Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          whileHover={{ y: -2 }}
-          className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-4 shadow-md"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
-              <TrendingUp className="text-white text-xl" />
+      {/* ── Summary Stats ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        {[
+          {
+            label: 'Total Offers',
+            value: stats.total,
+            icon: <TrendingUp className="text-white text-xl" />,
+            gradient: 'from-blue-600 to-indigo-600',
+            delay: 0,
+          },
+          {
+            label: 'Active',
+            value: stats.active,
+            icon: <CheckCircle className="text-white text-xl" />,
+            gradient: 'from-emerald-500 to-teal-600',
+            delay: 0.05,
+          },
+          {
+            label: 'Draft',
+            value: stats.draft,
+            icon: <Drafts className="text-white text-xl" />,
+            gradient: 'from-gray-500 to-gray-700',
+            delay: 0.1,
+          },
+          {
+            label: 'Paused',
+            value: stats.paused,
+            icon: <Pause className="text-white text-xl" />,
+            gradient: 'from-amber-400 to-orange-500',
+            delay: 0.15,
+          },
+          {
+            label: 'Bookings',
+            value: stats.totalBookings,
+            icon: <People className="text-white text-xl" />,
+            gradient: 'from-purple-500 to-pink-600',
+            delay: 0.2,
+          },
+          {
+            label: 'Revenue',
+            value: stats.totalRevenue > 0 ? `${(stats.totalRevenue / 1000).toFixed(1)}k` : '0',
+            icon: <AttachMoney className="text-white text-xl" />,
+            gradient: 'from-rose-500 to-red-600',
+            delay: 0.25,
+          },
+        ].map((card) => (
+          <motion.div
+            key={card.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: card.delay }}
+            whileHover={{ y: -2 }}
+            className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-4 shadow-md"
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${card.gradient} flex items-center justify-center shrink-0`}>
+                {card.icon}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xl font-bold text-gray-900 truncate">{card.value}</p>
+                <p className="text-xs text-gray-500 truncate">{card.label}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-              <p className="text-sm text-gray-500">Total Offers</p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          whileHover={{ y: -2 }}
-          className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-4 shadow-md"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-              <CheckCircle className="text-white text-xl" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.active}</p>
-              <p className="text-sm text-gray-500">Active</p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          whileHover={{ y: -2 }}
-          className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-4 shadow-md"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-500 to-gray-700 flex items-center justify-center">
-              <Drafts className="text-white text-xl" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.draft}</p>
-              <p className="text-sm text-gray-500">Drafts</p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          whileHover={{ y: -2 }}
-          className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-4 shadow-md"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-              <Pause className="text-white text-xl" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.paused}</p>
-              <p className="text-sm text-gray-500">Paused</p>
-            </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        ))}
       </div>
 
-      {/* Toolbar */}
+      {/* ── Toolbar ── */}
       <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-4 shadow-md mb-6">
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4">
           <div className="flex-1 relative">
@@ -348,10 +429,10 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
         </div>
       </div>
 
-      {/* Offers Grid/List */}
+      {/* ── Offers Grid / List ── */}
       {isLoading ? (
         <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
         </div>
       ) : error ? (
         <div className="text-center py-12 text-red-500 bg-red-50 rounded-2xl border border-red-100">
@@ -367,7 +448,7 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
             <Search className="text-gray-400 text-5xl" />
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">No offers found</h3>
-          <p className="text-gray-500 mb-6">Try adjusting your search or filters to find what you're looking for</p>
+          <p className="text-gray-500 mb-6">Try adjusting your search or filters</p>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -392,6 +473,5 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
         </div>
       )}
     </div>
-
   );
 }

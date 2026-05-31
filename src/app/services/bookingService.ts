@@ -1,21 +1,16 @@
 import api from './api';
 import { Booking, BookingCreateRequest } from '../types/api';
-import { isSuperAdmin } from '../utils/authRole';
 import {
   buildBookingsQueryParams,
   type GetBookingsParams,
 } from '../utils/bookingQuery';
 import type { BookingStatusUpdateRequest } from '../types/api';
 import {
-  filterBookingsForRole,
   normalizeBookingsList,
-  normalizeOffersList,
-  resolveAdminTenant,
   type AdminTenantContext,
 } from '../utils/tenantScope';
 
 const BOOKINGS_ENDPOINT = import.meta.env.VITE_API_BOOKINGS_ENDPOINT || '/api/v1/bookings';
-const OFFERS_ENDPOINT = import.meta.env.VITE_API_OFFERS_ENDPOINT || '/api/v1/offers';
 
 export type { GetBookingsParams } from '../utils/bookingQuery';
 
@@ -30,34 +25,15 @@ export const bookingService = {
   },
 
   /**
-   * GET /api/v1/bookings scoped to this agency's offers only (same rules as My Offers).
-   * Super admin receives all bookings.
+   * GET /api/v1/bookings/mine scoped to this agency's offers only (or all bookings for super admin).
    */
   getDashboardBookings: async (
     tenant?: AdminTenantContext,
     params?: GetBookingsParams
   ): Promise<Booking[]> => {
-    const scope = tenant ?? (await resolveAdminTenant());
-
     const queryParams = buildBookingsQueryParams(params);
-
-    const [bookingsRes, offersRes] = await Promise.all([
-      api.get(BOOKINGS_ENDPOINT, { params: queryParams }),
-      isSuperAdmin(scope.role)
-        ? Promise.resolve({ data: [] })
-        : api.get(OFFERS_ENDPOINT),
-    ]);
-
-    const bookings = normalizeBookingsList(bookingsRes.data);
-
-    if (isSuperAdmin(scope.role)) {
-      return bookings as Booking[];
-    }
-
-    const offers = normalizeOffersList(offersRes.data);
-
-    // Agency admin: filter bookings based on filtered offers
-    return filterBookingsForRole(bookings, offers, scope.role, scope) as Booking[];
+    const response = await api.get(`${BOOKINGS_ENDPOINT}/mine`, { params: queryParams });
+    return normalizeBookingsList(response.data) as Booking[];
   },
 
   createBooking: async (bookingData: BookingCreateRequest): Promise<Booking> => {

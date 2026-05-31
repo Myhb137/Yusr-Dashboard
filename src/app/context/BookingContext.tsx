@@ -14,6 +14,7 @@ import { getCurrentRole, isSuperAdmin, isAdmin } from '../utils/authRole';
 import {
   collectCurrentIdentityIds,
   collectCurrentIdentityEmails,
+  collectCurrentAgencyNames,
   syncRememberedOffersFromBookings,
   type AdminTenantContext,
 } from '../utils/tenantScope';
@@ -35,12 +36,14 @@ function resolveTenantFromStorage(): AdminTenantContext {
   const role = getCurrentRole();
   const identityIds = collectCurrentIdentityIds();
   const emails = collectCurrentIdentityEmails();
+  const agencyNames = collectCurrentAgencyNames();
   return {
     role,
     userId: identityIds[0] ?? null,
     email: emails[0] ?? null,
     identityIds,
     emails,
+    agencyNames,
   };
 }
 
@@ -154,9 +157,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (uid) userIdSet.add(uid);
       });
 
-      // ── Fetch users in one batch call (admins only) ──
+      // ── Fetch users in one batch call (superadmins only to avoid 403) ──
       const userMap: Record<string, any> = {};
-      if (isAdmin(role) && bookingsArray.length > 0) {
+      if (isSuperAdmin(role) && bookingsArray.length > 0) {
         try {
           const usersResult = await adminService.getAllUsers({ limit: 100, offset: 0 });
           if (Array.isArray(usersResult)) {
@@ -183,6 +186,60 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           } catch {
             // Skip failed individual lookups silently
           }
+        }
+      }
+
+      // Fetch user info for missing/incomplete users using getUserDetails or getUserBookings fallback.
+      // This ensures normal agency admins see booker details for their offers.
+      const missingUserIds = [...userIdSet].filter((id) => {
+        const u = userMap[String(id).trim()];
+        return !u || (!u.email && !u.phone && !u.full_name && !u.firstName && !u.lastName);
+      });
+
+      for (const id of missingUserIds) {
+        const trimmedId = String(id).trim();
+        try {
+          // First check if any other booking in the fetched list already has the user info inline
+          const inlineMatch = bookingsArray.find((b: any) => {
+            const uid = extractId(b, 'user_id', 'userId', 'user');
+            if (uid && String(uid).trim() === trimmedId) {
+              const userObj = b.user || b.customer;
+              return userObj && typeof userObj === 'object' && extractName(userObj) && (userObj.email || userObj.phone);
+            }
+            return false;
+          });
+
+          if (inlineMatch) {
+            userMap[trimmedId] = inlineMatch.user || inlineMatch.customer;
+            continue;
+          }
+
+          // Attempt 1: Fetch details directly using getUserDetails (allowed if backend permits admins to view their offer's bookers)
+          try {
+            const r = await adminService.getUserDetails(trimmedId);
+            const userData = (r as any)?.user || (r as any)?.data?.user || (r as any)?.data || r;
+            if (userData && (userData.email || userData.phone || userData.full_name || userData.firstName)) {
+              userMap[trimmedId] = userData;
+              continue;
+            }
+          } catch {
+            // Ignore unauthorized/bad request errors and try fallback
+          }
+
+          // Attempt 2: Fetch bookings for this user as a fallback to extract user/customer details
+          const userBookings = await bookingService.getUserBookings(trimmedId);
+          const normalizedBookings = Array.isArray(userBookings)
+            ? userBookings
+            : (userBookings?.bookings || userBookings?.data || []);
+          const firstBookingWithUser = normalizedBookings.find((b: any) => {
+            const userObj = b?.user || b?.customer;
+            return userObj && (userObj.email || userObj.phone || extractName(userObj));
+          });
+          if (firstBookingWithUser) {
+            userMap[trimmedId] = firstBookingWithUser.user || firstBookingWithUser.customer;
+          }
+        } catch (e) {
+          console.error(`Failed to load fallback user details for user ${trimmedId}:`, e);
         }
       }
 
@@ -257,7 +314,18 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       hasFetchedRef.current = true;
     } catch (err: any) {
       console.error('Failed to fetch bookings:', err);
-      setError(err?.response?.data?.message || err?.message || 'Failed to load bookings.');
+      const status = err?.response?.status;
+      let userMsg = 'Failed to load bookings. Please try refreshing the page.';
+      if (status === 401) {
+        userMsg = 'Session expired. Please log in again.';
+      } else if (status === 403) {
+        userMsg = 'You do not have access to view these bookings.';
+      } else if (err.message === 'Network Error') {
+        userMsg = 'Network error. Please check your internet connection.';
+      } else if (err?.response?.data?.message) {
+        userMsg = err.response.data.message;
+      }
+      setError(userMsg);
     } finally {
       setIsLoading(false);
       isFetchingRef.current = false;

@@ -101,11 +101,11 @@ export function buildStatusUpdatePayload(params: {
 
   return body;
 }
-
 export function validateLifecycleTransition(from: string, to: string): void {
   const f = trimApiEnum(from);
   const t = trimApiEnum(to);
   if (f === t) return;
+  if (t === 'cancelled') return; // Cancel is always allowed from any state
   const expected = BOOKING_STATUS_NEXT[f as BookingStatusValue];
   if (expected !== t) {
     throw new Error(`Invalid transition "${f}" → "${t}". Next step: ${expected ?? 'none'}.`);
@@ -116,7 +116,7 @@ export type WorkflowAction =
   | {
       type: 'lifecycle';
       nextStatus: BookingStatusValue;
-      labelKey: 'confirm' | 'validate' | 'release_to_agency' | 'complete';
+      labelKey: 'confirm' | 'validate' | 'release_to_agency' | 'complete' | 'cancel';
       depositAmount?: number;
     }
   | {
@@ -142,6 +142,14 @@ export function getWorkflowActions(
   const payment = trimApiEnum(booking.paymentStatus);
   const hasReceipt = Boolean(booking.depositReceiptUrl);
   const actions: WorkflowAction[] = [];
+
+  // If already cancelled or completed, no actions can be performed
+  if (status === 'cancelled' || status === 'completed') {
+    return [];
+  }
+
+  // Cancel action is always available for any admin/superadmin as long as status is not cancelled/completed
+  actions.push({ type: 'lifecycle', nextStatus: 'cancelled', labelKey: 'cancel' });
 
   if (role === 'admin') {
     if (status === 'pending') {
@@ -183,7 +191,6 @@ export function getWorkflowActions(
 
   return actions;
 }
-
 export function validatePaymentAction(
   booking: BookingWorkflowState,
   paymentStatus: 'paid' | 'failed'
@@ -212,13 +219,13 @@ export function describeWaitingState(booking: BookingWorkflowState): string | nu
   const hasReceipt = Boolean(booking.depositReceiptUrl);
 
   if (status === 'validated' && !hasReceipt && (payment === 'pending' || payment === 'failed' || !payment)) {
-    return 'Waiting for client POST /deposit-receipt.';
+    return 'Waiting for client to upload deposit receipt.';
   }
   if (status === 'validated' && isPaymentAwaitingReview(payment, hasReceipt)) {
-    return 'Receipt uploaded — approve or reject payment (PUT /status).';
+    return 'Receipt uploaded — awaiting admin payment verification.';
   }
   if (status === 'validated' && payment === 'paid') {
-    return 'Payment confirmed — release to agency.';
+    return 'Payment confirmed — ready to release to agency.';
   }
   return null;
 }

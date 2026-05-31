@@ -54,9 +54,12 @@ export function AdminManagement() {
       }
     } catch (err: any) {
       console.error('Failed to fetch admins:', err);
-      const apiError = err.response?.data;
       const status = err.response?.status;
-      setError(`Error ${status || ''}: ${apiError?.message || apiError?.error || err.message || 'Failed to fetch agency admins.'}`);
+      if (status === 403) {
+        setError('You do not have permission to view agency admins.');
+      } else {
+        setError('Failed to fetch agency admins. Please try again later.');
+      }
     } finally {
       setIsLoadingAdmins(false);
     }
