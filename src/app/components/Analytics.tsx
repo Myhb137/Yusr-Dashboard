@@ -27,7 +27,8 @@ import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
 import { bookingService } from '../services/bookingService';
 import { offerService } from '../services/offerService';
-import { authService } from '../services/authService';
+import { isSuperAdmin } from '../utils/authRole';
+import { extractEntityId, resolveAdminTenant } from '../utils/tenantScope';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const PIE_COLORS = ['#0046A8', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
@@ -44,64 +45,23 @@ export function Analytics() {
       try {
         setIsLoading(true);
 
-        const user = authService.getStoredUser();
-        const currentUserId = user?._id || user?.id;
-        const currentRole = String(
-          user?.role || user?.user_metadata?.role || user?.app_metadata?.role || ''
-        ).toLowerCase().replace(/[_ ]/g, '');
+        const tenant = await resolveAdminTenant();
 
-        // Helper: extract ID
-        const extractId = (obj: any, ...keys: string[]): string | null => {
-          if (!obj) return null;
-          for (const key of keys) {
-            const val = obj[key];
-            if (!val) continue;
-            if (typeof val === 'string' && val.length > 0) return val;
-            const id = val?._id || val?.id;
-            if (id) return String(id);
-          }
-          return null;
-        };
-
-        // Fetch all bookings and offers to compute multi-tenant stats
         const [bookingsRes, offersRes] = await Promise.allSettled([
-          bookingService.getAllBookings(),
-          offerService.getAllOffers(),
+          bookingService.getDashboardBookings(tenant),
+          offerService.getDashboardOffers(tenant),
         ]);
 
-        let bookingsArray: any[] = [];
-        let offersArray: any[] = [];
-
-        if (bookingsRes.status === 'fulfilled') {
-          const raw = bookingsRes.value;
-          bookingsArray = Array.isArray(raw) ? raw : (raw?.bookings || raw?.data || []);
-        }
-        if (offersRes.status === 'fulfilled') {
-          const raw = offersRes.value;
-          offersArray = Array.isArray(raw) ? raw : (raw?.offers || raw?.data || []);
-        }
-
-        // --- Filter for Admin Multi-tenancy ---
-        if (currentRole !== 'superadmin' && currentUserId) {
-          // 1. Filter my offers
-          const myOffers = offersArray.filter((o: any) => {
-            const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
-            const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
-            return String(ownerIdStr) === String(currentUserId);
-          });
-          const myOfferIds = myOffers.map((o: any) => String(o.id || o._id));
-          offersArray = myOffers;
-
-          // 2. Filter bookings for my offers
-          bookingsArray = bookingsArray.filter((b: any) => {
-            const oid = extractId(b, 'offer_id', 'offerId', 'offer');
-            return oid && myOfferIds.includes(oid);
-          });
-        }
+        const bookingsArray =
+          bookingsRes.status === 'fulfilled' ? (bookingsRes.value as any[]) : [];
+        const offersArray =
+          offersRes.status === 'fulfilled' ? (offersRes.value as any[]) : [];
 
         // --- Calculate Stats Cards ---
         const totalRevenue = bookingsArray.reduce((acc, b) => acc + Number(b.total_price || b.totalAmount || b.amount || 0), 0);
-        const uniqueCustomers = new Set(bookingsArray.map(b => extractId(b, 'user_id', 'userId', 'user'))).size;
+        const uniqueCustomers = new Set(
+          bookingsArray.map((b) => extractEntityId(b, 'user_id', 'userId', 'user'))
+        ).size;
         
         setStats({
           revenue: totalRevenue,

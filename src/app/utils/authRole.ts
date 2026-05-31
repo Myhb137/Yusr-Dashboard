@@ -9,7 +9,7 @@ export function normalizeRole(role: unknown): NormalizedRole {
     .toLowerCase()
     .replace(/[_ ]/g, '');
   if (r === 'superadmin') return 'superadmin';
-  if (r === 'admin') return 'admin';
+  if (r === 'admin' || r === 'agencyadmin') return 'admin';
   return 'user';
 }
 
@@ -35,6 +35,11 @@ export function isSuperAdmin(role?: NormalizedRole): boolean {
 export function isAdmin(role?: NormalizedRole): boolean {
   const r = role ?? getCurrentRole();
   return r === 'admin' || r === 'superadmin';
+}
+
+/** Agency admin and super admin may create/edit offers (POST /api/v1/offers). */
+export function canManageOffers(role?: NormalizedRole): boolean {
+  return isAdmin(role);
 }
 
 export function canChangeBookingStatus(role?: NormalizedRole): boolean {

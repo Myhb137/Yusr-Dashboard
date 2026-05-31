@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Star } from '@mui/icons-material';
 import { offerService } from '../services/offerService';
-import { authService } from '../services/authService';
 import { useLanguage } from '../context/LanguageContext';
+import { resolveAdminTenant } from '../utils/tenantScope';
 
 export function TopOffers() {
   const { t, isRTL } = useLanguage();
@@ -14,19 +14,8 @@ export function TopOffers() {
     const fetchTopOffers = async () => {
       try {
         setIsLoading(true);
-        const user = authService.getStoredUser();
-        const currentUserId = user?._id || user?.id;
-        const currentRole = String(user?.role || user?.user_metadata?.role || user?.app_metadata?.role || '').toLowerCase().replace(/[_ ]/g, '');
-        const data = await offerService.getAllOffers();
-        let offersArray = Array.isArray(data) ? data : (data?.offers || []);
-
-        if (currentRole !== 'superadmin' && currentUserId) {
-          offersArray = offersArray.filter((o: any) => {
-            const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
-            const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
-            return String(ownerIdStr) === String(currentUserId);
-          });
-        }
+        const tenant = await resolveAdminTenant();
+        const offersArray = (await offerService.getDashboardOffers(tenant)) as any[];
 
         const sorted = [...offersArray]
           .sort((a: any, b: any) => (b.bookings || b.places || 0) - (a.bookings || a.places || 0))

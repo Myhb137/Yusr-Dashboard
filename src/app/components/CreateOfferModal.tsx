@@ -17,6 +17,8 @@ import {
 } from '@mui/icons-material';
 import { offerService } from '../services/offerService';
 import { useLanguage } from '../context/LanguageContext';
+import { canManageOffers } from '../utils/authRole';
+import { resolveCurrentUserId } from '../utils/tenantScope';
 
 interface CreateOfferModalProps {
   isOpen: boolean;
@@ -46,6 +48,7 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
   });
 
   const [images, setImages] = useState<string[]>([]);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,7 +75,14 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
     setIsSubmitting(true);
 
     try {
-      const payload: Record<string, any> = {
+      if (!canManageOffers()) {
+        setError('Only agency admins can create offers.');
+        return;
+      }
+
+      await resolveCurrentUserId();
+
+      const payload: Record<string, unknown> = {
         title: formData.name,
         location: formData.destination,
         type: formData.type,
@@ -84,16 +94,20 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
         currency: 'DZD',
         amenities: formData.highlights.filter((h: string) => h.trim() !== ''),
         itinerary: formData.itinerary
-          .map((day: any) => day.title ? `Day ${day.day} – ${day.title}: ${day.description}` : day.description)
+          .map((day: any) =>
+            day.title ? `Day ${day.day} – ${day.title}: ${day.description}` : day.description
+          )
           .filter(Boolean),
       };
       const imageVal = images.length > 0 ? images[0] : (offer?.image_url || offer?.image || '');
-      if (imageVal) payload.image_url = imageVal;
+      if (imageVal && !imageFile) payload.image_url = imageVal;
+
+      const fileOpts = imageFile ? { imageFile } : undefined;
 
       if (offer) {
-        await offerService.updateOffer((offer.id || offer._id).toString(), payload);
+        await offerService.updateOffer((offer.id || offer._id).toString(), payload, fileOpts);
       } else {
-        await offerService.createOffer(payload);
+        await offerService.createOffer(payload, fileOpts);
       }
 
       onSuccess?.();
@@ -248,13 +262,35 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
                 className={`${fieldClass} resize-none`} />
             </div>
 
-            {/* Image URL */}
+            {/* Image — file upload (preferred) or URL */}
             <div>
               <label className={labelClass}>{m.imageUrl} *</label>
-              <input type="url" required
-                value={images.length > 0 ? images[0] : (offer?.image_url || offer?.image || '')}
-                onChange={(e) => setImages([e.target.value])}
-                placeholder="https://example.com/image.jpg" className={fieldClass} />
+              <input
+                type="file"
+                accept="image/*"
+                className={`${fieldClass} file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 mb-2`}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setImageFile(file);
+                    setImages([URL.createObjectURL(file)]);
+                  }
+                }}
+              />
+              <p className={`text-xs text-gray-500 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
+                {m.imageUrlOrUpload || 'Or paste an image URL:'}
+              </p>
+              <input
+                type="url"
+                required={!imageFile}
+                value={images.length > 0 && !imageFile ? images[0] : (offer?.image_url || offer?.image || '')}
+                onChange={(e) => {
+                  setImageFile(null);
+                  setImages([e.target.value]);
+                }}
+                placeholder="https://example.com/image.jpg"
+                className={fieldClass}
+              />
               {(images.length > 0 ? images[0] : (offer?.image_url || offer?.image || '')) && (
                 <div className="mt-3 relative w-full h-40 rounded-xl overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center text-gray-400">
                   <img

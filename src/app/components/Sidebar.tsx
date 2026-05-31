@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { NavLink } from 'react-router';
 import { motion } from 'motion/react';
 import bouraqLogo from '../../assets/buraq-blue.png';
@@ -23,21 +23,9 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onToggle, onLogout }: SidebarProps) {
   const { t, isRTL } = useLanguage();
-  const [user, setUser] = useState<any>(() => authService.getStoredUser());
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const userData = await authService.getCurrentUser();
-        if (userData && !userData.error) {
-          setUser(userData.user || userData);
-        }
-      } catch (err) {
-        console.error('Failed to fetch user:', err);
-      }
-    };
-    fetchUser();
-  }, []);
+  // Use cached localStorage data — no network call needed.
+  // The BookingContext handles the single /auth/user refresh per session.
+  const [user] = useState<any>(() => authService.getStoredUser());
 
   const menuItems = [
     { path: '/overview', label: t.sidebar.overview, icon: Dashboard },
@@ -139,6 +127,9 @@ export function Sidebar({ isOpen, onToggle, onLogout }: SidebarProps) {
             <div className={`flex-1 min-w-0 ${isRTL ? 'text-right' : 'text-left'}`}>
               <p className="font-medium text-sm text-gray-900 truncate">{user?.name || 'User'}</p>
               <p className="text-xs text-gray-500 truncate">{user?.email || 'email@buraq.dz'}</p>
+              <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                {currentRole === 'superadmin' ? 'Super Admin' : currentRole === 'admin' ? 'Admin' : 'User'}
+              </span>
             </div>
           </motion.div>
 

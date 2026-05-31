@@ -39,6 +39,9 @@ export interface AuthResponse {
   requiresOtp?: boolean;
   otpProvider?: 'firebase' | 'sms' | 'email' | 'dev';
   otpChannel?: 'sms' | 'email' | 'dev';
+  /** Dev only — OTP may be returned when SMTP is not configured */
+  otp?: string;
+  code?: string;
   twoFactorToken?: string;
   otpSessionToken?: string;
   phone?: string;
@@ -60,13 +63,10 @@ export interface SignupRequest {
   role?: 'user';
 }
 
-export interface VerifyAdmin2FARequest {
-  twoFactorToken: string;
-  firebaseIdToken: string;
-}
-
+/** POST /api/v1/auth/login/verify-admin-otp */
 export interface VerifyAdminOtpRequest {
   twoFactorToken: string;
+  /** 6-digit code (alias: `code`) */
   otp?: string;
   code?: string;
 }
@@ -105,38 +105,31 @@ export interface Booking {
   offer_id: string;
   total_price: number;
   payment_method: string;
-  status: 'pending' | 'confirmed' | 'validated' | 'ready_for_agency' | 'completed' | 'cancelled';
-  payment_status: 'pending' | 'under_review' | 'paid' | 'failed' | 'refunded';
+  status: BookingStatus;
+  payment_status: PaymentStatus;
   deposit_amount?: number;
   receipt_url?: string;
   created_at?: string;
 }
 
-export type BookingStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'validated'
-  | 'ready_for_agency'
-  | 'completed'
-  | 'cancelled';
+import type {
+  BookingStatusValue,
+  PaymentStatusValue,
+} from '../constants/bookingApiEnums';
 
-export type PaymentStatus = 'pending' | 'under_review' | 'paid' | 'failed' | 'refunded';
+export type BookingStatus = BookingStatusValue;
+export type PaymentStatus = PaymentStatusValue;
 
-/** Workflow statuses for PATCH /bookings/{id}/status */
-export type WorkflowBookingStatus = 'pending' | 'confirmed' | 'ready_for_agency' | 'completed';
-
-export type WorkflowPaymentStatus = 'pending' | 'paid' | 'failed';
+/** PUT /api/v1/bookings/{id}/status — full row state (status + payment_status required) */
+export interface BookingStatusUpdateRequest {
+  status: BookingStatus;
+  payment_status: PaymentStatus;
+  deposit_amount?: number;
+}
 
 export interface BookingCreateRequest {
   offer_id: string;
   total_price: number;
   payment_method: string;
-  receipt_url?: string;
-}
-
-export interface BookingStatusUpdateRequest {
-  status: WorkflowBookingStatus | BookingStatus;
-  payment_status?: WorkflowPaymentStatus | PaymentStatus;
-  deposit_amount?: number;
   receipt_url?: string;
 }

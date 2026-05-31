@@ -15,7 +15,7 @@ import {
 } from '@mui/icons-material';
 import { OfferCard } from './OfferCard';
 import { offerService } from '../services/offerService';
-import { authService } from '../services/authService';
+import { resolveAdminTenant } from '../utils/tenantScope';
 
 interface Offer {
   id: number;
@@ -57,26 +57,8 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
       try {
         setIsLoading(true);
         
-        // 1. Get current user info
-        const user = authService.getStoredUser();
-        const currentUserId = user?._id || user?.id;
-        const currentRole = String(
-          user?.role || user?.user_metadata?.role || user?.app_metadata?.role || ''
-        ).toLowerCase().replace(/[_ ]/g, '');
-
-        // 2. Fetch all offers
-        const data = await offerService.getAllOffers();
-        let offersArray = Array.isArray(data) ? data : (data?.offers || data?.data?.offers || data?.data || []);
-        
-        // 3. Filter if not superadmin
-        if (currentRole !== 'superadmin' && currentUserId) {
-          offersArray = offersArray.filter((o: any) => {
-            const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
-            // Handle case where ownerId might be an object or a string
-            const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
-            return String(ownerIdStr) === String(currentUserId);
-          });
-        }
+        const tenant = await resolveAdminTenant();
+        const offersArray = (await offerService.getDashboardOffers(tenant)) as any[];
 
         const mappedOffers = offersArray.map((offer: any) => ({
           ...offer,

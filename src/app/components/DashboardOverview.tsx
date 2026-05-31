@@ -5,9 +5,10 @@ import { QuickActions } from './QuickActions';
 import { AttachMoney, Inventory2, People, Pending } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
-import { authService } from '../services/authService';
 import { bookingService } from '../services/bookingService';
 import { offerService } from '../services/offerService';
+import { isSuperAdmin } from '../utils/authRole';
+import { resolveAdminTenant } from '../utils/tenantScope';
 import { useLanguage } from '../context/LanguageContext';
 
 
@@ -25,44 +26,18 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
       try {
         setIsLoading(true);
 
-        const user = authService.getStoredUser();
-        const currentUserId = user?._id || user?.id;
-        const currentRole = String(
-          user?.role || user?.user_metadata?.role || user?.app_metadata?.role || ''
-        ).toLowerCase().replace(/[_ ]/g, '');
+        const tenant = await resolveAdminTenant();
 
-        if (currentRole !== 'superadmin' && currentUserId) {
-          // Admin Multi-tenancy: Aggregate only their data
+        if (!isSuperAdmin(tenant.role)) {
           const [bookingsRes, offersRes] = await Promise.allSettled([
-            bookingService.getAllBookings(),
-            offerService.getAllOffers(),
+            bookingService.getDashboardBookings(tenant),
+            offerService.getDashboardOffers(tenant),
           ]);
 
-          let bookingsArray: any[] = [];
-          let offersArray: any[] = [];
-
-          if (bookingsRes.status === 'fulfilled') {
-            const raw = bookingsRes.value;
-            bookingsArray = Array.isArray(raw) ? raw : (raw?.bookings || raw?.data || []);
-          }
-          if (offersRes.status === 'fulfilled') {
-            const raw = offersRes.value;
-            offersArray = Array.isArray(raw) ? raw : (raw?.offers || raw?.data || []);
-          }
-
-          // Filter my offers
-          const myOffers = offersArray.filter((o: any) => {
-            const ownerId = o.user_id || o.userId || o.admin_id || o.created_by;
-            const ownerIdStr = typeof ownerId === 'object' ? (ownerId._id || ownerId.id) : ownerId;
-            return String(ownerIdStr) === String(currentUserId);
-          });
-          const myOfferIds = myOffers.map((o: any) => String(o.id || o._id));
-
-          // Filter bookings for my offers
-          const myBookings = bookingsArray.filter((b: any) => {
-            const oid = b.offer_id || b.offerId || (typeof b.offer === 'object' ? (b.offer.id || b.offer._id) : b.offer);
-            return oid && myOfferIds.includes(String(oid));
-          });
+          const myBookings =
+            bookingsRes.status === 'fulfilled' ? (bookingsRes.value as any[]) : [];
+          const myOffers =
+            offersRes.status === 'fulfilled' ? (offersRes.value as any[]) : [];
 
           // Calculate unique customers
           const uniqueCustomers = new Set(myBookings.map(b => {

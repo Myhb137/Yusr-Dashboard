@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { Login } from './components/Login';
 import { LanguageProvider } from './context/LanguageContext';
 import { BookingProvider } from './context/BookingContext';
+import { invalidateAdminTenantCache } from './utils/tenantScope';
 import { DashboardLayout } from './layouts/DashboardLayout';
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    invalidateAdminTenantCache();
     setIsAuthenticated(false);
   }, []);
 

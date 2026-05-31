@@ -1,14 +1,63 @@
 import api from './api';
-import { Booking, BookingCreateRequest, BookingStatusUpdateRequest } from '../types/api';
-import type { BookingStatusUpdatePayload } from '../utils/bookingStatus';
+import { Booking, BookingCreateRequest } from '../types/api';
+import { isSuperAdmin } from '../utils/authRole';
+import {
+  buildBookingsQueryParams,
+  type GetBookingsParams,
+} from '../utils/bookingQuery';
+import type { BookingStatusUpdateRequest } from '../types/api';
+import {
+  filterBookingsForRole,
+  normalizeBookingsList,
+  normalizeOffersList,
+  resolveAdminTenant,
+  type AdminTenantContext,
+} from '../utils/tenantScope';
 
 const BOOKINGS_ENDPOINT = import.meta.env.VITE_API_BOOKINGS_ENDPOINT || '/api/v1/bookings';
+const OFFERS_ENDPOINT = import.meta.env.VITE_API_OFFERS_ENDPOINT || '/api/v1/offers';
+
+export type { GetBookingsParams } from '../utils/bookingQuery';
 
 export const bookingService = {
-  getAllBookings: async (): Promise<Booking[]> => {
-    const response = await api.get(BOOKINGS_ENDPOINT);
+  /** GET /api/v1/bookings — Swagger query params only (status, payment_status, limit, offset). */
+  getAllBookings: async (params?: GetBookingsParams): Promise<Booking[]> => {
+    const response = await api.get(BOOKINGS_ENDPOINT, {
+      params: buildBookingsQueryParams(params),
+    });
     const data = response.data;
     return Array.isArray(data) ? data : (data?.bookings || data?.data || []);
+  },
+
+  /**
+   * GET /api/v1/bookings scoped to this agency's offers only (same rules as My Offers).
+   * Super admin receives all bookings.
+   */
+  getDashboardBookings: async (
+    tenant?: AdminTenantContext,
+    params?: GetBookingsParams
+  ): Promise<Booking[]> => {
+    const scope = tenant ?? (await resolveAdminTenant());
+
+    const queryParams = buildBookingsQueryParams(params);
+
+    const [bookingsRes, offersRes] = await Promise.all([
+      api.get(BOOKINGS_ENDPOINT, { params: queryParams }),
+      isSuperAdmin(scope.role)
+        ? Promise.resolve({ data: [] })
+        : api.get(OFFERS_ENDPOINT),
+    ]);
+
+    const bookings = normalizeBookingsList(bookingsRes.data);
+
+    if (isSuperAdmin(scope.role)) {
+      return bookings as Booking[];
+    }
+
+    const offers = normalizeOffersList(offersRes.data);
+
+    // Agency admin: filter bookings based on filtered offers
+    return filterBookingsForRole(bookings, offers, scope.role, scope) as Booking[];
   },
 
   createBooking: async (bookingData: BookingCreateRequest): Promise<Booking> => {
@@ -21,25 +70,23 @@ export const bookingService = {
     return response.data;
   },
 
-  /** PUT /api/v1/bookings/{id}/status (OpenAPI — not PATCH) */
-  updateBookingStatus: async (id: string, payload: BookingStatusUpdatePayload) => {
-    if (!payload.status) {
-      throw new Error('status is required for PUT /api/v1/bookings/{id}/status');
-    }
+  /**
+   * POST /api/v1/bookings/{id}/deposit-receipt
+   * Upload payment proof only — does not send lifecycle status.
+   */
+  uploadDepositReceipt: async (bookingId: string, file: File): Promise<unknown> => {
+    const formData = new FormData();
+    formData.append('receipt', file);
 
-    const body: BookingStatusUpdateRequest = {
-      status: payload.status as BookingStatusUpdateRequest['status'],
-    };
-    if (payload.payment_status !== undefined) {
-      body.payment_status = payload.payment_status;
-    }
-    if (payload.deposit_amount !== undefined) {
-      body.deposit_amount = payload.deposit_amount;
-    }
-    if (payload.receipt_url !== undefined) {
-      body.receipt_url = payload.receipt_url;
-    }
+    const response = await api.post(
+      `${BOOKINGS_ENDPOINT}/${bookingId}/deposit-receipt`,
+      formData
+    );
+    return response.data;
+  },
 
+  /** PUT /api/v1/bookings/{id}/status — Swagger BookingStatusUpdate body. */
+  updateBooking: async (id: string, body: BookingStatusUpdateRequest) => {
     const response = await api.put(`${BOOKINGS_ENDPOINT}/${id}/status`, body);
     return response.data;
   },

@@ -2,32 +2,26 @@ import { bookingService } from './bookingService';
 import { authService } from './authService';
 import { getCurrentRole, type NormalizedRole } from '../utils/authRole';
 import {
+  actionsEqual,
   buildStatusUpdatePayload,
-  buildReceiptValidationPayload,
-  buildDepositSavePayload,
-  toBookingStatus,
-  getAlternateApiStatus,
-  STATUS_NOT_ALLOWED_ERROR,
-  PAYMENT_LOCKED_ERROR,
-  type BookingStatusUpdatePayload,
-  type DbBookingStatus,
-} from '../utils/bookingStatus';
+  getWorkflowActions,
+  mapApiBookingToWorkflowState,
+  validateLifecycleTransition,
+  validatePaymentAction,
+  type BookingWorkflowState,
+  type WorkflowAction,
+} from '../utils/bookingWorkflow';
+import { trimApiEnum } from '../constants/bookingApiEnums';
 import { logBookingStatusChange } from '../utils/bookingAuditLog';
+import { resolveAdminTenant } from '../utils/tenantScope';
 
-export interface BookingForStatusUpdate {
+export interface BookingForWorkflowUpdate extends BookingWorkflowState {
   id: string;
-  status: string;
-  apiStatus: string;
-  paymentStatus: string;
-  depositAmount: number;
-  totalPrice: number;
-  receiptUrl?: string | null;
-  receiptValidated: boolean;
 }
 
-export interface StatusUpdateResult {
+export interface WorkflowUpdateResult {
   booking: Record<string, unknown>;
-  payload: BookingStatusUpdatePayload;
+  payload: ReturnType<typeof buildStatusUpdatePayload>;
 }
 
 function getActorId(): string | undefined {
@@ -41,52 +35,44 @@ function isStatusCheckError(err: unknown): boolean {
   return msg.includes('bookings_status_check');
 }
 
-async function callStatusApi(
-  bookingId: string,
-  payload: BookingStatusUpdatePayload
-): Promise<unknown> {
-  if (!payload.status) {
-    throw new Error('PUT /api/v1/bookings/{id}/status requires a status field.');
+function mapApiError(err: unknown, context: BookingWorkflowState, payload: unknown): never {
+  const ax = err as {
+    response?: { status?: number; data?: { message?: string; error?: string } };
+  };
+
+  if (ax.response?.status === 403) {
+    throw new Error(ax.response.data?.message || ax.response.data?.error || 'Forbidden');
+  }
+  if (ax.response?.status === 404) {
+    throw new Error('PUT /api/v1/bookings/{id}/status not found.');
+  }
+  if (isStatusCheckError(err)) {
+    throw new Error(
+      `Server rejected this transition (bookings_status_check). ` +
+        `Current API state: status="${context.status}", payment_status="${context.paymentStatus ?? 'none'}". ` +
+        `Sent: ${JSON.stringify(payload)}. ` +
+        `Allowed chain: pending → confirmed → validated → ready_for_agency → completed.`
+    );
+  }
+  throw err;
+}
+
+async function loadFreshBookingState(bookingId: string): Promise<BookingForWorkflowUpdate> {
+  const tenant = await resolveAdminTenant();
+  const list = (await bookingService.getDashboardBookings(tenant, {
+    limit: 100,
+    offset: 0,
+  })) as Record<string, unknown>[];
+
+  const raw = list.find((b) => String(b.id ?? b._id) === bookingId);
+  if (!raw) {
+    throw new Error('Booking not found in latest GET /bookings response.');
   }
 
-  const attempts: BookingStatusUpdatePayload[] = [payload];
-
-  const alt = getAlternateApiStatus(payload.status as DbBookingStatus);
-  if (alt) {
-    attempts.push({ ...payload, status: alt });
-  }
-
-  let lastError: unknown;
-
-  for (const attempt of attempts) {
-    try {
-      return await bookingService.updateBookingStatus(bookingId, attempt);
-    } catch (err: unknown) {
-      lastError = err;
-      const ax = err as {
-        response?: { status?: number; data?: { message?: string; error?: string } };
-      };
-
-      if (ax.response?.status === 403) {
-        throw new Error(
-          ax.response.data?.message ||
-            ax.response.data?.error ||
-            PAYMENT_LOCKED_ERROR
-        );
-      }
-      if (ax.response?.status === 404) {
-        throw new Error(
-          'Status endpoint not found. Expected PUT /api/v1/bookings/{id}/status on the API server.'
-        );
-      }
-
-      if (!isStatusCheckError(err) || attempt === attempts[attempts.length - 1]) {
-        break;
-      }
-    }
-  }
-
-  throw lastError;
+  return {
+    id: bookingId,
+    ...mapApiBookingToWorkflowState(raw),
+  };
 }
 
 export const bookingStatusService = {
@@ -94,128 +80,65 @@ export const bookingStatusService = {
     return getCurrentRole();
   },
 
-  async updateStatus(
-    booking: BookingForStatusUpdate,
-    nextStatus: string,
-    options?: {
-      role?: NormalizedRole;
-      depositAmount?: number;
-      validateReceipt?: boolean;
-    }
-  ): Promise<StatusUpdateResult> {
+  getAvailableActions(role: NormalizedRole, booking: BookingWorkflowState) {
+    return getWorkflowActions(role, booking);
+  },
+
+  /** Re-fetch from GET /bookings, then PUT /status with Swagger body. */
+  async applyWorkflowAction(
+    bookingId: string,
+    action: WorkflowAction,
+    options?: { role?: NormalizedRole }
+  ): Promise<WorkflowUpdateResult> {
     const role = options?.role ?? getCurrentRole();
-    const fromStatus = toBookingStatus(booking.status);
+    const booking = await loadFreshBookingState(bookingId);
 
-    let payload: BookingStatusUpdatePayload;
-
-    try {
-      payload = buildStatusUpdatePayload(
-        {
-          status: booking.status,
-          apiStatus: booking.apiStatus,
-          paymentStatus: booking.paymentStatus,
-          depositAmount: booking.depositAmount,
-          totalPrice: booking.totalPrice,
-          receiptUrl: booking.receiptUrl,
-          receiptValidated: booking.receiptValidated,
-        },
-        nextStatus,
-        role,
-        options
+    const allowed = getWorkflowActions(role, booking);
+    if (!allowed.some((a) => actionsEqual(a, action))) {
+      throw new Error(
+        `Action not allowed for current API state (status=${booking.status}, payment_status=${booking.paymentStatus ?? 'none'}). Refresh the page.`
       );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : STATUS_NOT_ALLOWED_ERROR;
-      throw new Error(msg);
     }
 
-    const response = await callStatusApi(booking.id, payload);
+    const currentStatus = trimApiEnum(booking.status);
+    let payload;
+
+    if (action.type === 'lifecycle') {
+      validateLifecycleTransition(currentStatus, action.nextStatus);
+      payload = buildStatusUpdatePayload({
+        currentStatus,
+        currentPaymentStatus: booking.paymentStatus,
+        nextStatus: action.nextStatus,
+        depositAmount: action.depositAmount,
+      });
+    } else {
+      validatePaymentAction(booking, action.paymentStatus);
+      payload = buildStatusUpdatePayload({
+        currentStatus,
+        currentPaymentStatus: booking.paymentStatus,
+        nextStatus: currentStatus,
+        nextPaymentStatus: action.paymentStatus,
+      });
+    }
+
+    let response: unknown;
+    try {
+      response = await bookingService.updateBooking(bookingId, payload);
+    } catch (err) {
+      mapApiError(err, booking, payload);
+    }
+
     const updated = extractBooking(response);
 
     logBookingStatusChange({
-      bookingId: booking.id,
-      fromStatus,
-      toStatus: String(payload.status ?? fromStatus),
+      bookingId,
+      fromStatus: currentStatus,
+      toStatus: payload.status,
       actorRole: role,
       actorId: getActorId(),
-      paymentStatus: payload.payment_status,
-      depositAmount: payload.deposit_amount,
-      receiptValidated: payload.payment_status === 'paid',
     });
 
     return { booking: updated, payload };
-  },
-
-  async validateReceipt(
-    booking: BookingForStatusUpdate,
-    depositAmount?: number,
-    role?: NormalizedRole
-  ): Promise<StatusUpdateResult> {
-    const r = role ?? getCurrentRole();
-
-    if (toBookingStatus(booking.status) !== toBookingStatus('confirmed')) {
-      throw new Error('Receipt can only be validated while booking is confirmed.');
-    }
-
-    const payload = buildReceiptValidationPayload(booking, r, depositAmount);
-    const response = await callStatusApi(booking.id, payload);
-    const updated = extractBooking(response);
-
-    logBookingStatusChange({
-      bookingId: booking.id,
-      fromStatus: booking.status,
-      toStatus: String(payload.status),
-      actorRole: r,
-      actorId: getActorId(),
-      paymentStatus: payload.payment_status,
-      depositAmount: payload.deposit_amount,
-      receiptValidated: true,
-    });
-
-    return { booking: updated, payload };
-  },
-
-  async saveDeposit(
-    booking: BookingForStatusUpdate,
-    depositAmount: number,
-    role?: NormalizedRole
-  ): Promise<{ result: StatusUpdateResult; persistedOnServer: boolean }> {
-    const r = role ?? getCurrentRole();
-
-    if (toBookingStatus(booking.status) !== toBookingStatus('confirmed')) {
-      throw new Error('Deposit can only be set while booking is confirmed.');
-    }
-
-    const payload = buildDepositSavePayload(booking, r, depositAmount);
-
-    try {
-      const response = await callStatusApi(booking.id, payload);
-      const updated = extractBooking(response);
-
-      logBookingStatusChange({
-        bookingId: booking.id,
-        fromStatus: booking.status,
-        toStatus: String(payload.status),
-        actorRole: r,
-        actorId: getActorId(),
-        depositAmount: payload.deposit_amount,
-      });
-
-      return {
-        result: { booking: updated, payload },
-        persistedOnServer: true,
-      };
-    } catch (err) {
-      if (!isStatusCheckError(err)) {
-        throw err;
-      }
-      return {
-        result: {
-          booking: {},
-          payload: { deposit_amount: depositAmount },
-        },
-        persistedOnServer: false,
-      };
-    }
   },
 };
 

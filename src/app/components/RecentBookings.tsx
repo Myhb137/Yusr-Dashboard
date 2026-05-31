@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, Pending, Cancel, MoreVert } from '@mui/icons-material';
 import { useLanguage } from '../context/LanguageContext';
-import { useBookings } from '../context/BookingContext';
+import { useBookings } from '../context/useBookings';
 
 const getStatusConfig = (tBookings: any) => ({
   confirmed: { label: tBookings.confirmed, icon: CheckCircle, bgClass: 'bg-emerald-100', textClass: 'text-emerald-700' },
@@ -97,7 +97,7 @@ export function RecentBookings() {
 
                 {/* Payment Status Badge */}
                 <div className={`hidden sm:flex px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${getPaymentStatusColor(booking.paymentStatus)}`}>
-                  {booking.paymentStatus}
+                  {booking.paymentStatus ?? '—'}
                 </div>
 
                 {/* Status Badge */}

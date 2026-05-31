@@ -5,24 +5,37 @@ import {
   LoginRequest,
   ResetPasswordRequest,
   SignupRequest,
-  VerifyAdmin2FARequest,
+  VerifyAdminOtpRequest,
 } from '../types/api';
 
 const AUTH_ENDPOINT = import.meta.env.VITE_API_AUTH_ENDPOINT || '/api/v1/auth';
+const VERIFY_ADMIN_OTP_PATH =
+  import.meta.env.VITE_API_AUTH_VERIFY_ADMIN_OTP || '/api/v1/auth/login/verify-admin-otp';
+
+function persistAuthSession(data: AuthResponse) {
+  if (data.token) {
+    localStorage.setItem('token', data.token);
+  }
+  const user = data.user || {};
+  const email =
+    typeof user.email === 'string' ? user.email.trim().toLowerCase() : undefined;
+  localStorage.setItem(
+    'user',
+    JSON.stringify({
+      ...user,
+      ...(email ? { email, _identityEmails: [email] } : {}),
+    })
+  );
+}
 
 export const authService = {
   login: async (credentials: LoginRequest): Promise<AuthResponse> => {
     const response = await api.post<AuthResponse>(`${AUTH_ENDPOINT}/login`, credentials);
     const data = response.data;
 
-    // Save token
     if (data.token) {
-      localStorage.setItem('token', data.token);
+      persistAuthSession(data);
     }
-
-    // Save user (merge top-level role into user object if needed)
-    const user = data.user || {};
-    localStorage.setItem('user', JSON.stringify(user));
 
     return data;
   },
@@ -52,7 +65,11 @@ export const authService = {
   },
 
   logout: async () => {
-    try { await api.post(`${AUTH_ENDPOINT}/logout`); } catch { /* ignore */ }
+    try {
+      await api.post(`${AUTH_ENDPOINT}/logout`);
+    } catch {
+      /* ignore */
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
   },
@@ -72,16 +89,24 @@ export const authService = {
     return response.data;
   },
 
-  verifyAdmin2FA: async (payload: VerifyAdmin2FARequest) => {
-    const response = await api.post<AuthResponse>(`${AUTH_ENDPOINT}/login/verify-admin-2fa`, payload);
-    const data = response.data;
-
-    if (data.token) {
-      localStorage.setItem('token', data.token);
+  /** POST /api/v1/auth/login/verify-admin-otp — agency admin email OTP */
+  verifyAdminOtp: async (payload: VerifyAdminOtpRequest): Promise<AuthResponse> => {
+    const otp = String(payload.otp ?? payload.code ?? '').trim();
+    if (!payload.twoFactorToken?.trim()) {
+      throw new Error('Missing twoFactorToken from login.');
     }
-    const user = data.user || {};
-    localStorage.setItem('user', JSON.stringify(user));
+    if (!/^\d{6}$/.test(otp)) {
+      throw new Error('OTP must be a 6-digit code.');
+    }
 
+    const body = {
+      twoFactorToken: payload.twoFactorToken.trim(),
+      otp,
+    };
+
+    const response = await api.post<AuthResponse>(VERIFY_ADMIN_OTP_PATH, body);
+    const data = response.data;
+    persistAuthSession(data);
     return data;
   },
 };
