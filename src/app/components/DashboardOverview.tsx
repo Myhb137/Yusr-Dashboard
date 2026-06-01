@@ -2,7 +2,7 @@ import { StatCard } from './StatCard';
 import { RecentBookings } from './RecentBookings';
 import { TopOffers } from './TopOffers';
 import { QuickActions } from './QuickActions';
-import { AttachMoney, Inventory2, People, Pending } from '@mui/icons-material';
+import { AttachMoney, Inventory2, People } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { adminService } from '../services/adminService';
 import { bookingService } from '../services/bookingService';
@@ -10,6 +10,7 @@ import { offerService } from '../services/offerService';
 import { isSuperAdmin } from '../utils/authRole';
 import { resolveAdminTenant } from '../utils/tenantScope';
 import { useLanguage } from '../context/LanguageContext';
+import { useBookings } from '../context/useBookings';
 
 
 interface DashboardOverviewProps {
@@ -18,8 +19,14 @@ interface DashboardOverviewProps {
 
 export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
   const { t } = useLanguage();
+  const { refreshBookings } = useBookings();
   const [statsData, setStatsData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Trigger bookings fetch when the overview page mounts so RecentBookings has data
+  useEffect(() => {
+    refreshBookings();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -27,49 +34,34 @@ export function DashboardOverview({ onCreateOffer }: DashboardOverviewProps) {
         setIsLoading(true);
 
         const tenant = await resolveAdminTenant();
+        const isSuper = isSuperAdmin(tenant.role);
 
-        if (!isSuperAdmin(tenant.role)) {
-          const [bookingsRes, offersRes] = await Promise.allSettled([
-            bookingService.getDashboardBookings(tenant),
-            offerService.getDashboardOffers(tenant),
-          ]);
+        const [bookingsRes, offersRes] = await Promise.allSettled([
+          isSuper ? bookingService.getAllBookings() : bookingService.getDashboardBookings(tenant),
+          isSuper ? offerService.getAllOffers() : offerService.getDashboardOffers(tenant),
+        ]);
 
-          const myBookings =
-            bookingsRes.status === 'fulfilled' ? (bookingsRes.value as any[]) : [];
-          const myOffers =
-            offersRes.status === 'fulfilled' ? (offersRes.value as any[]) : [];
+        const myBookings =
+          bookingsRes.status === 'fulfilled' ? (bookingsRes.value as any[]) : [];
+        const myOffers =
+          offersRes.status === 'fulfilled' ? (offersRes.value as any[]) : [];
 
-          // Calculate unique customers
-          const uniqueCustomers = new Set(myBookings.map(b => {
-            const uid = b.user_id || b.userId || (typeof b.user === 'object' ? (b.user._id || b.user.id) : b.user);
-            return String(uid);
-          })).size;
+        // Calculate unique customers
+        const uniqueCustomers = new Set(myBookings.map(b => {
+          const uid = b.user_id || b.userId || (typeof b.user === 'object' ? (b.user._id || b.user.id) : b.user);
+          return String(uid);
+        })).size;
 
-          setStatsData({
-            totalRevenue: myBookings.reduce((acc, b) => acc + Number(b.total_price || b.totalAmount || b.amount || 0), 0),
-            activeOffers: myOffers.filter(o => o.available === true || o.status === 'active' || o.isActive).length,
-            totalBookings: myBookings.length,
-            totalUsers: uniqueCustomers,
-            revenueChange: '+0%',
-            offersChange: '0',
-            bookingsChange: '+0%',
-            usersChange: '+0',
-          });
-        } else {
-          // Superadmin: Global stats
-          const data = await adminService.getStats();
-          // Normalize superadmin data keys
-          setStatsData({
-            totalRevenue: data?.totalRevenue || data?.revenue || 0,
-            activeOffers: data?.activeOffers || data?.offersCount || 0,
-            totalBookings: data?.totalBookings || data?.bookingsCount || 0,
-            totalUsers: data?.totalUsers || data?.usersCount || data?.customersCount || 0,
-            revenueChange: data?.revenueChange || '+0%',
-            offersChange: data?.offersChange || '0',
-            bookingsChange: data?.bookingsChange || '+0%',
-            usersChange: data?.usersChange || '+0',
-          });
-        }
+        setStatsData({
+          totalRevenue: myBookings.reduce((acc, b) => acc + Number(b.total_price || b.totalAmount || b.amount || 0), 0),
+          activeOffers: myOffers.filter(o => o.available === true || o.status === 'active' || o.isActive).length,
+          totalBookings: myBookings.length,
+          totalUsers: uniqueCustomers,
+          revenueChange: '+0%',
+          offersChange: '0',
+          bookingsChange: '+0%',
+          usersChange: '+0',
+        });
       } catch (err) {
         console.error('Failed to fetch dashboard stats:', err);
       } finally {

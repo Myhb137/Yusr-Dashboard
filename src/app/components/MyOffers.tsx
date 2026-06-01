@@ -24,6 +24,7 @@ import { OfferCard } from './OfferCard';
 import { offerService } from '../services/offerService';
 import { bookingService } from '../services/bookingService';
 import { resolveAdminTenant } from '../utils/tenantScope';
+import { isSuperAdmin } from '../utils/authRole';
 import {
   joinOffersWithBookers,
   type OfferWithBookers,
@@ -43,6 +44,8 @@ interface Offer {
   rating: number;
   status: 'active' | 'draft' | 'paused';
   category: string;
+  agencyEmail?: string;
+  agencyName?: string;
 }
 
 interface MyOffersProps {
@@ -117,7 +120,7 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
 
         // Co-fetch offers and bookings in parallel — no sequential waterfall
         const [offersArray, bookingsArray] = await Promise.all([
-          offerService.getDashboardOffers(tenant),
+          isSuperAdmin(tenant.role) ? offerService.getAllOffers() : offerService.getDashboardOffers(tenant),
           bookingService.getDashboardBookings(tenant) as Promise<any[]>,
         ]);
 
@@ -158,6 +161,8 @@ export function MyOffers({ onCreateOffer, onEditOffer, refreshTrigger }: MyOffer
                 ? 'paused'
                 : offer.status || 'draft',
             category: offer.type || offer.category || 'Standard',
+            agencyEmail: offer.user?.email || offer.author?.email || undefined,
+            agencyName: offer.user?.name || offer.user?.full_name || offer.author?.name || undefined,
           };
         });
         setOffers(mappedOffers);

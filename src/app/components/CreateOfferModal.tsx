@@ -57,7 +57,7 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
         name: offer?.title || offer?.name || '',
         destination: offer?.location || offer?.destination || '',
         type: offer?.type || 'standard',
-        price: offer?.total_price?.toString() || offer?.price?.toString().replace(' DZD', '').replace('$', '').replace(',', '') || '',
+        price: offer?.total_price?.toString() || offer?.price?.toString()?.replace(' DZD', '')?.replace('$', '')?.replace(',', '') || '',
         duration: offer?.duration?.toString()?.replace(' days', '') || '',
         maxPeople: offer?.places?.toString() || '15',
         description: offer?.description || '',

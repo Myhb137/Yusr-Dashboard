@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { BookingContext } from './bookingContextStore';
 import type { DashboardBooking } from './bookingContextTypes';
 import type { WorkflowAction } from '../utils/bookingWorkflow';
@@ -377,10 +377,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return fetchBookings(true, params);
   }, [fetchBookings]);
 
-  // ── Run ONCE on mount — empty dep array, no loop ──
-  useEffect(() => {
-    fetchBookings();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── Bookings are NOT pre-loaded on mount.
+  // ── They are fetched on-demand when a page component calls refreshBookings().
+  // ── This keeps the server free at login time.
 
   return (
     <BookingContext.Provider

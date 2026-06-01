@@ -2,15 +2,15 @@ import { motion } from 'motion/react';
 import {
   Edit,
   Delete,
-  ContentCopy,
   MoreVert,
-  Visibility,
   Star,
   LocationOn,
   CalendarToday,
   People,
+  Business,
 } from '@mui/icons-material';
 import { useState } from 'react';
+import { isSuperAdmin, getCurrentRole } from '../utils/authRole';
 
 interface Offer {
   id: number;
@@ -23,6 +23,8 @@ interface Offer {
   rating: number;
   status: 'active' | 'draft' | 'paused';
   category: string;
+  agencyEmail?: string;
+  agencyName?: string;
 }
 
 interface OfferCardProps {
@@ -57,6 +59,8 @@ const statusConfig = {
 export function OfferCard({ offer, index, viewMode, onEdit, onDelete }: OfferCardProps) {
   const [showActions, setShowActions] = useState(false);
   const status = statusConfig[offer.status];
+  const role = getCurrentRole();
+  const superAdmin = isSuperAdmin(role);
 
   if (viewMode === 'list') {
     return (
@@ -108,19 +112,18 @@ export function OfferCard({ offer, index, viewMode, onEdit, onDelete }: OfferCar
                 <Star className="text-yellow-500 text-base" />
                 <span className="font-medium">{offer.rating}</span>
               </div>
+              {superAdmin && (offer.agencyName || offer.agencyEmail) && (
+                <div className="flex items-center gap-1 max-w-[150px] truncate" title={offer.agencyName || offer.agencyEmail}>
+                  <Business className="text-base" />
+                  <span className="truncate">{offer.agencyName || offer.agencyEmail}</span>
+                </div>
+              )}
               <div className="font-bold text-blue-600 ml-auto">{offer.price}</div>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="p-2 hover:bg-blue-50 text-blue-600 rounded-xl transition-colors"
-              title="View"
-            >
-              <Visibility className="text-xl" />
-            </motion.button>
+            
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -182,14 +185,7 @@ export function OfferCard({ offer, index, viewMode, onEdit, onDelete }: OfferCar
 
         {/* Quick Actions Overlay */}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            className="p-3 bg-white/90 backdrop-blur-sm rounded-xl hover:bg-white transition-colors"
-            title="View"
-          >
-            <Visibility className="text-blue-600" />
-          </motion.button>
+          
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
@@ -202,14 +198,7 @@ export function OfferCard({ offer, index, viewMode, onEdit, onDelete }: OfferCar
           >
             <Edit className="text-indigo-600" />
           </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            className="p-3 bg-white/90 backdrop-blur-sm rounded-xl hover:bg-white transition-colors"
-            title="Duplicate"
-          >
-            <ContentCopy className="text-gray-600" />
-          </motion.button>
+         
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
@@ -257,6 +246,12 @@ export function OfferCard({ offer, index, viewMode, onEdit, onDelete }: OfferCar
             <p className="font-bold text-gray-900">{offer.bookings}</p>
           </div>
         </div>
+        {superAdmin && (offer.agencyName || offer.agencyEmail) && (
+          <div className="mt-3 pt-3 border-t border-gray-200/50 flex items-center gap-2 text-xs text-gray-500 truncate" title={offer.agencyName || offer.agencyEmail}>
+            <Business className="text-base shrink-0" />
+            <span className="truncate">{offer.agencyName || offer.agencyEmail}</span>
+          </div>
+        )}
       </div>
     </motion.div>
   );

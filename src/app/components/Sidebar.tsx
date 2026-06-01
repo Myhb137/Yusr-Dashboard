@@ -42,6 +42,11 @@ export function Sidebar({ isOpen, onToggle, onLogout }: SidebarProps) {
   const currentRole = String(user?.role || user?.user_metadata?.role || user?.app_metadata?.role || '').toLowerCase().replace(/[_ ]/g, '');
   const allItems = currentRole === 'superadmin' ? [...menuItems, ...superAdminOnlyItems] : menuItems;
 
+  const displayEmail = user?.email || 'email@buraq.dz';
+  const rawName = user?.full_name || user?.name || `${user?.firstName || user?.first_name || ''} ${user?.lastName || user?.last_name || ''}`.trim();
+  const displayName = rawName || 'User';
+  const displayInitial = (rawName ? rawName.charAt(0) : displayEmail.charAt(0)).toUpperCase();
+
   return (
     <>
       {isOpen && (
@@ -58,7 +63,7 @@ export function Sidebar({ isOpen, onToggle, onLogout }: SidebarProps) {
         initial={false}
         animate={{ x: isOpen ? 0 : (isRTL ? 300 : -300) }}
         transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-        className={`fixed lg:relative inset-y-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} w-72 bg-white/80 backdrop-blur-xl border-gray-200/50 shadow-xl z-50 flex flex-col lg:translate-x-0 shrink-0`}
+        className={`fixed lg:relative inset-y-0 ${isRTL ? 'right-0 border-l' : 'left-0 border-r'} w-72 bg-white/80 backdrop-blur-xl border-gray-200/50 shadow-xl z-50 flex flex-col shrink-0`}
       >
         <div className="p-6 border-b border-gray-200/50">
           <div className={`flex items-center justify-between ${isRTL ? 'flex-row-reverse' : ''}`}>
@@ -122,11 +127,11 @@ export function Sidebar({ isOpen, onToggle, onLogout }: SidebarProps) {
             className={`flex items-center gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer ${isRTL ? 'flex-row-reverse' : ''}`}
           >
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold shrink-0">
-              {user?.name?.charAt(0) || user?.email?.charAt(0) || 'A'}
+              {displayInitial}
             </div>
             <div className={`flex-1 min-w-0 ${isRTL ? 'text-right' : 'text-left'}`}>
-              <p className="font-medium text-sm text-gray-900 truncate">{user?.name || 'User'}</p>
-              <p className="text-xs text-gray-500 truncate">{user?.email || 'email@buraq.dz'}</p>
+              <p className="font-medium text-sm text-gray-900 truncate">{displayName}</p>
+              <p className="text-xs text-gray-500 truncate">{displayEmail}</p>
               <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                 {currentRole === 'superadmin' ? 'Super Admin' : currentRole === 'admin' ? 'Admin' : 'User'}
               </span>

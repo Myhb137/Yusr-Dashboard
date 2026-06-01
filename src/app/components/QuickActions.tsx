@@ -1,13 +1,15 @@
 import { motion } from 'motion/react';
 import { Add, TrendingUp, Settings, FlightTakeoff } from '@mui/icons-material';
 import { useLanguage } from '../context/LanguageContext';
+import { useNavigate } from 'react-router';
 
 interface QuickActionsProps {
   onCreateOffer: () => void;
 }
 
 export function QuickActions({ onCreateOffer }: QuickActionsProps) {
-  const { t, isRTL } = useLanguage();
+  const { language, t, isRTL } = useLanguage();
+  const navigate = useNavigate();
 
   const actions = [
     {
@@ -34,18 +36,28 @@ export function QuickActions({ onCreateOffer }: QuickActionsProps) {
   ];
 
   const heading =
-    t.language.en === 'English'
-      ? t.language.ar === 'العربية' && isRTL
-        ? 'هل أنت مستعد لتنمية أعمالك؟'
-        : 'Ready to grow your business?'
-      : 'Prêt à développer votre activité ?';
+    language === 'ar'
+      ? 'هل أنت مستعد لتنمية أعمالك؟'
+      : language === 'fr'
+      ? 'Prêt à développer votre activité ?'
+      : 'Ready to grow your business?';
 
   const subheading =
-    isRTL
+    language === 'ar'
       ? 'أنشئ عروضاً جديدة وابلغ مسافرين أكثر'
-      : t.language.fr === 'Français' && !isRTL && t.language.label === 'Langue'
-        ? 'Créez de nouvelles offres et atteignez plus de voyageurs'
-        : 'Create new offers and reach more travelers';
+      : language === 'fr'
+      ? 'Créez de nouvelles offres et atteignez plus de voyageurs'
+      : 'Create new offers and reach more travelers';
+
+  const handleActionClick = (actionName: string) => {
+    if (actionName === 'createOffer') {
+      onCreateOffer();
+    } else if (actionName === 'analytics') {
+      navigate('/analytics');
+    } else if (actionName === 'settings') {
+      navigate('/settings');
+    }
+  };
 
   return (
     <motion.div
@@ -64,8 +76,8 @@ export function QuickActions({ onCreateOffer }: QuickActionsProps) {
       {/* Content */}
       <div className="relative z-10">
         <div className={`mb-8 ${isRTL ? 'text-right' : 'text-left'}`}>
-          <h3 className="text-3xl font-bold text-white mb-2">{t.overview.createOffer}?</h3>
-          <p className="text-blue-100">{t.modal.offerNamePlaceholder}</p>
+          <h3 className="text-3xl font-bold text-white mb-2">{heading}</h3>
+          <p className="text-blue-100">{subheading}</p>
         </div>
 
         {/* Action Cards Grid */}
@@ -75,7 +87,7 @@ export function QuickActions({ onCreateOffer }: QuickActionsProps) {
             return (
               <motion.button
                 key={action.id}
-                onClick={() => action.action === 'createOffer' && onCreateOffer()}
+                onClick={() => handleActionClick(action.action)}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.8 + index * 0.1 }}

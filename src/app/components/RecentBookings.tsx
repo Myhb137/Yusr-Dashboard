@@ -46,10 +46,6 @@ export function RecentBookings() {
       {/* Header */}
       <div className={`flex items-center justify-between mb-6 ${isRTL ? 'flex-row-reverse' : ''}`}>
         <h3 className="text-xl font-bold text-gray-900">{t.overview.recentBookings}</h3>
-        <motion.a whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} href="#"
-          className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors">
-          {isRTL ? '← ' : ''}{t.common.viewDetails}{isRTL ? '' : ' →'}
-        </motion.a>
       </div>
 
       {/* Table */}
