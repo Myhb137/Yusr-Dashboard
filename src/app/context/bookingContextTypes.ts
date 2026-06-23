@@ -11,6 +11,7 @@ export interface DashboardBooking {
   customerPhone?: string;
   customerGender?: string;
   offerName: string;
+  agencyName: string;
   destination: string;
   startDate: string;
   endDate: string;

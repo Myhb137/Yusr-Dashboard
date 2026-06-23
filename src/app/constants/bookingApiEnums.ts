@@ -100,5 +100,5 @@ export function isPaymentAwaitingReview(
 ): boolean {
   if (!hasReceipt) return false;
   const p = trimApiEnum(paymentStatus);
-  return p === 'under_review' || p === 'pending';
+  return p === 'under_review';
 }

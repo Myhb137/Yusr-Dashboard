@@ -97,6 +97,14 @@ export interface Offer {
   itinerary?: string[];
   rating?: number;
   total_reviews?: number;
+  /** Creator / owner fields — returned on some API responses */
+  user_id?: string;
+  admin_id?: string;
+  userId?: string;
+  adminId?: string;
+  agency?: { id?: string; name?: string; logo?: string } | null;
+  agency_name?: string;
+  creator?: { id?: string; name?: string; agency_name?: string } | null;
 }
 
 export interface Booking {
@@ -132,4 +140,18 @@ export interface BookingCreateRequest {
   total_price: number;
   payment_method: string;
   receipt_url?: string;
+}
+
+export interface CustomTrip {
+  id: string;
+  user_id: string;
+  destination: string;
+  departure_date: string;
+  return_date: string;
+  budget: number;
+  travelers: number;
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | string;
+  notes?: string;
+  created_at?: string;
+  user?: User;
 }

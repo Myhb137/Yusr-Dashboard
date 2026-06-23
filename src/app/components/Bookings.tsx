@@ -271,6 +271,11 @@ export function Bookings() {
                 <th className="px-3 py-3 text-xs font-semibold text-gray-900 whitespace-nowrap">{t.bookings.bookingRef}</th>
                 <th className="px-3 py-3 text-xs font-semibold text-gray-900">{t.bookings.customer}</th>
                 <th className="px-3 py-3 text-xs font-semibold text-gray-900 hidden sm:table-cell">{t.bookings.offer}</th>
+                {superAdmin && (
+                  <th className="px-3 py-3 text-xs font-semibold text-gray-900 hidden md:table-cell whitespace-nowrap">
+                    Agency
+                  </th>
+                )}
                 <th className="px-3 py-3 text-xs font-semibold text-gray-900 whitespace-nowrap">{t.bookings.amount}</th>
                 {superAdmin && (
                   <th className="px-3 py-3 text-xs font-semibold text-gray-900">{t.bookings.paymentReceipt}</th>
@@ -283,7 +288,7 @@ export function Bookings() {
             <tbody className="divide-y divide-gray-200">
               {filteredBookings.length === 0 ? (
                 <tr>
-                  <td colSpan={superAdmin ? 8 : 7} className="px-4 py-12 text-center text-gray-500 text-sm">
+                  <td colSpan={superAdmin ? 9 : 7} className="px-4 py-12 text-center text-gray-500 text-sm">
                     {t.bookings.noBookings}
                   </td>
                 </tr>
@@ -306,6 +311,11 @@ export function Bookings() {
                     <td className="px-3 py-3 hidden sm:table-cell max-w-[12rem]">
                       <p className="font-medium text-gray-900 text-sm truncate">{booking.offerName}</p>
                     </td>
+                    {superAdmin && (
+                      <td className="px-3 py-3 hidden md:table-cell max-w-[10rem]">
+                        <p className="text-sm text-indigo-700 font-medium truncate">{booking.agencyName}</p>
+                      </td>
+                    )}
                     <td className="px-3 py-3 whitespace-nowrap text-sm font-semibold">{booking.amount}</td>
                     {superAdmin && (
                       <td className="px-3 py-3">
@@ -392,6 +402,12 @@ export function Bookings() {
                 </div>
                 <div className="space-y-2 min-w-0">
                   <p className="font-bold text-gray-900">{selectedBooking.offerName}</p>
+                  {superAdmin && selectedBooking.agencyName && selectedBooking.agencyName !== '-' && (
+                    <p className="text-xs font-semibold text-indigo-600 flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-indigo-400"></span>
+                      {selectedBooking.agencyName}
+                    </p>
+                  )}
                   <p className="text-gray-500 flex items-center gap-1">
                     <LocationOn fontSize="small" />
                     {selectedBooking.destination}

@@ -108,6 +108,12 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
         return;
       }
 
+      const durationVal = parseInt(formData.duration, 10);
+      if (isNaN(durationVal) || durationVal < 1) {
+        setError(m.invalidDuration || 'Duration must be at least 1 day.');
+        return;
+      }
+
       await resolveCurrentUserId();
 
       const payload: Record<string, unknown> = {
@@ -262,7 +268,7 @@ export function CreateOfferModal({ isOpen, onClose, offer, onSuccess }: CreateOf
                   <label className={labelClass}>{m.duration} *</label>
                   <div className="relative">
                     <CalendarToday className={iconPosClass} />
-                    <input type="number" required value={formData.duration}
+                    <input type="number" required min="1" value={formData.duration}
                       onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
                       placeholder="7" className={iconInputClass()} />
                   </div>

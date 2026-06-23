@@ -10,7 +10,8 @@ import {
   Settings,
   ExitToApp,
   Close,
-  AdminPanelSettings
+  AdminPanelSettings,
+  FlightTakeoff
 } from '@mui/icons-material';
 import { authService } from '../services/authService';
 import { useLanguage } from '../context/LanguageContext';
@@ -37,6 +38,7 @@ export function Sidebar({ isOpen, onToggle, onLogout }: SidebarProps) {
 
   const superAdminOnlyItems = [
     { path: '/admins', label: t.sidebar.platformManagement, icon: AdminPanelSettings },
+    { path: '/custom-trips', label: (t.sidebar as any)?.customTrips || 'Custom Trips', icon: FlightTakeoff },
   ];
 
   const currentRole = String(user?.role || user?.user_metadata?.role || user?.app_metadata?.role || '').toLowerCase().replace(/[_ ]/g, '');

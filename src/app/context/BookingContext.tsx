@@ -134,11 +134,15 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return payment || null;
       };
 
-      const [bookingsArray, offersArray] = await Promise.all([
+      const [bookingsArray, offersArray, adminsArray] = await Promise.all([
         bookingService.getDashboardBookings(tenant, fetchParamsRef.current) as Promise<any[]>,
         isSuperAdmin(role)
           ? offerService.getAllOffers() as Promise<any[]>
           : offerService.getDashboardOffers(tenant, []) as Promise<any[]>,
+        // Fetch admins list only for super admin – used to resolve agency names per offer
+        isSuperAdmin(role)
+          ? adminService.getAllAdmins({ limit: 200, offset: 0 }).catch(() => []) as Promise<any[]>
+          : Promise.resolve([]),
       ]);
 
       // ── Build offer map from the already-fetched list (0 extra calls) ──
@@ -149,6 +153,90 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (id) offerMap[id] = o;
         });
       }
+
+      // ── Build admin map keyed by user id AND email (for agency name lookup) ──
+      const adminMap: Record<string, any> = {};
+      const adminEmailMap: Record<string, any> = {};
+      if (Array.isArray(adminsArray)) {
+        adminsArray.forEach((a: any) => {
+          const id = String(a?.id || a?._id || '').trim();
+          if (id) adminMap[id] = a;
+          const email = String(a?.email || '').trim().toLowerCase();
+          if (email) adminEmailMap[email] = a;
+        });
+      }
+
+      // ── Debug: log first raw booking to inspect available fields ──
+      if (bookingsArray.length > 0 && isSuperAdmin(role)) {
+        const sample = bookingsArray[0];
+        console.debug('[BookingContext] raw booking sample keys:', Object.keys(sample || {}));
+        if (sample?.offer) console.debug('[BookingContext] booking.offer keys:', Object.keys(sample.offer || {}));
+      }
+
+      // ── Helper: resolve agency name, checking every possible data source ──
+      const resolveAgencyName = (resolvedOffer: any, rawBooking?: any): string => {
+        // Sources to check in priority order:
+        const inlineOffer = rawBooking && typeof rawBooking.offer === 'object' ? rawBooking.offer : null;
+
+        // 1. Direct agency name on offer (current or future API)
+        const directSources = [resolvedOffer, inlineOffer];
+        for (const src of directSources) {
+          if (!src) continue;
+          const direct =
+            src?.agency?.name ||
+            src?.agency_name ||
+            src?.agencyName ||
+            src?.creator?.agency_name ||
+            src?.creator?.name ||
+            src?.admin?.agency_name ||
+            src?.admin?.agencyName;
+          if (direct && direct !== 'null') return String(direct);
+        }
+
+        // 2. Cross-reference via offer owner user_id → adminMap → agency_name
+        const ownerIdCandidates: string[] = [];
+        for (const src of [resolvedOffer, inlineOffer]) {
+          if (!src) continue;
+          [src.user_id, src.userId, src.admin_id, src.adminId, src.owner_id, src.ownerId,
+            src.creator?.id, src.creator?._id, src.admin?.id, src.admin?._id,
+          ].forEach((v: any) => { if (v) ownerIdCandidates.push(String(v).trim()); });
+        }
+        for (const oid of ownerIdCandidates) {
+          const admin = adminMap[oid];
+          if (admin?.agency_name) return admin.agency_name;
+          if (admin?.agencyName) return admin.agencyName;
+        }
+
+        // 3. Agency info directly on the raw booking (some APIs embed it)
+        if (rawBooking) {
+          const bookingDirect =
+            rawBooking?.agency?.name ||
+            rawBooking?.agency_name ||
+            rawBooking?.agencyName ||
+            rawBooking?.admin?.agency_name ||
+            rawBooking?.admin?.agencyName;
+          if (bookingDirect && bookingDirect !== 'null') return String(bookingDirect);
+
+          // 4. Cross-reference booking.admin_id / booking.agency_id → adminMap
+          const bookingAdminId = rawBooking?.admin_id || rawBooking?.adminId ||
+            rawBooking?.agency_id || rawBooking?.agencyId ||
+            rawBooking?.admin?.id || rawBooking?.admin?._id;
+          if (bookingAdminId) {
+            const admin = adminMap[String(bookingAdminId).trim()];
+            if (admin?.agency_name) return admin.agency_name;
+            if (admin?.agencyName) return admin.agencyName;
+          }
+
+          // 5. Cross-reference booking.admin email → adminEmailMap
+          const bookingAdminEmail = rawBooking?.admin?.email || rawBooking?.agency?.email;
+          if (bookingAdminEmail) {
+            const admin = adminEmailMap[String(bookingAdminEmail).trim().toLowerCase()];
+            if (admin?.agency_name) return admin.agency_name;
+          }
+        }
+
+        return '-';
+      };
 
       // ── Collect user IDs needed ──
       const userIdSet = new Set<string>();
@@ -288,6 +376,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             resolvedUser?.phone || resolvedUser?.phoneNumber || booking.customerPhone || booking.phone || '-',
           customerGender: resolvedUser?.gender || booking.customerGender || booking.gender || '-',
           offerName: resolvedOffer?.title || resolvedOffer?.name || booking.offerName || 'Custom Trip',
+          agencyName: resolveAgencyName(resolvedOffer),
           destination: resolvedOffer?.location || resolvedOffer?.destination || booking.destination || '-',
           startDate: booking.startDate || booking.start_date || '-',
           endDate: booking.endDate || booking.end_date || '-',

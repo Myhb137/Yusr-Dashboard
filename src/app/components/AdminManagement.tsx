@@ -117,6 +117,9 @@ export function AdminManagement() {
   const [offerSearchQuery, setOfferSearchQuery] = useState('');
   const [page, setPage] = useState(1);
 
+  // Status filter for agencies
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
   // Create form
   const [formOpen, setFormOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -263,8 +266,13 @@ export function AdminManagement() {
 
   const filteredAdmins = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return admins;
     return admins.filter((a) => {
+      // status gate
+      const inactive = a.status === 'deactivated';
+      if (statusFilter === 'active' && inactive) return false;
+      if (statusFilter === 'inactive' && !inactive) return false;
+      // search gate
+      if (!q) return true;
       return (
         (a.firstName || '').toLowerCase().includes(q) ||
         (a.lastName || '').toLowerCase().includes(q) ||
@@ -272,7 +280,7 @@ export function AdminManagement() {
         (a.email || '').toLowerCase().includes(q)
       );
     });
-  }, [admins, searchQuery]);
+  }, [admins, searchQuery, statusFilter]);
 
   const filteredOffers = useMemo(() => {
     const q = offerSearchQuery.trim().toLowerCase();
@@ -358,6 +366,34 @@ export function AdminManagement() {
                   <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search agencies, name, email..." className="w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200 bg-white focus:ring-2 focus:ring-indigo-200" />
                 </div>
               </div>
+            </div>
+
+            {/* Status Filter Pills */}
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              {(
+                [
+                  { key: 'all', label: 'All', count: admins.length, activeClass: 'bg-indigo-600 text-white shadow-md shadow-indigo-100', inactiveClass: 'bg-gray-100 text-gray-600 hover:bg-gray-200' },
+                  { key: 'active', label: 'Active', count: admins.filter((a) => a.status !== 'deactivated').length, activeClass: 'bg-emerald-500 text-white shadow-md shadow-emerald-100', inactiveClass: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
+                  { key: 'inactive', label: 'Inactive', count: admins.filter((a) => a.status === 'deactivated').length, activeClass: 'bg-rose-500 text-white shadow-md shadow-rose-100', inactiveClass: 'bg-rose-50 text-rose-700 hover:bg-rose-100' },
+                ] as const
+              ).map(({ key, label, count, activeClass, inactiveClass }) => (
+                <motion.button
+                  key={key}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => { setStatusFilter(key); setPage(1); }}
+                  className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                    statusFilter === key ? activeClass : inactiveClass
+                  }`}
+                >
+                  {label}
+                  <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-semibold ${
+                    statusFilter === key ? 'bg-white/25 text-inherit' : 'bg-white text-gray-700'
+                  }`}>
+                    {count}
+                  </span>
+                </motion.button>
+              ))}
             </div>
 
             {isLoadingAdmins ? (

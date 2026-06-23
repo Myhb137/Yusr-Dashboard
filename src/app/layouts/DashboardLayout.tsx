@@ -24,6 +24,9 @@ const Settings = lazy(() =>
 const AdminManagement = lazy(() =>
   import('../components/AdminManagement').then((m) => ({ default: m.AdminManagement }))
 );
+const CustomTrips = lazy(() =>
+  import('../components/CustomTrips').then((m) => ({ default: m.CustomTrips }))
+);
 
 // Lightweight fallback shown while a lazy chunk is loading
 function PageLoader() {
@@ -39,7 +42,7 @@ function PageLoader() {
 
 function tabFromPath(pathname: string): string {
   const segment = pathname.split('/').filter(Boolean)[0] || 'overview';
-  const allowed = ['overview', 'offers', 'bookings', 'analytics', 'settings', 'admins'];
+  const allowed = ['overview', 'offers', 'bookings', 'analytics', 'settings', 'admins', 'custom-trips'];
   return allowed.includes(segment) ? segment : 'overview';
 }
 
@@ -109,9 +112,15 @@ export function DashboardLayout({ onLogout }: DashboardLayoutProps) {
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/settings" element={<Settings />} />
               {isSuperAdmin ? (
-                <Route path="/admins" element={<AdminManagement />} />
+                <>
+                  <Route path="/admins" element={<AdminManagement />} />
+                  <Route path="/custom-trips" element={<CustomTrips />} />
+                </>
               ) : (
-                <Route path="/admins" element={<Navigate to="/overview" replace />} />
+                <>
+                  <Route path="/admins" element={<Navigate to="/overview" replace />} />
+                  <Route path="/custom-trips" element={<Navigate to="/overview" replace />} />
+                </>
               )}
               <Route path="*" element={<Navigate to="/overview" replace />} />
             </Routes>
