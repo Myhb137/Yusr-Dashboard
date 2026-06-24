@@ -14,11 +14,31 @@ import {
   Cancel,
   Visibility,
   VisibilityOff,
+  BarChart as BarChartIcon,
+  TrendingUp,
+  People,
+  AttachMoney,
+  CalendarToday,
 } from '@mui/icons-material';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  BarChart as RechartsBarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 import { adminService } from '../services/adminService';
 import { offerService } from '../services/offerService';
+import { bookingService } from '../services/bookingService';
 import { useLanguage } from '../context/LanguageContext';
 import { User } from '../types/api';
+import { extractEntityId, normalizeId } from '../utils/tenantScope';
 
 type Admin = User & {
   _id?: string;
@@ -97,6 +117,276 @@ function ConfirmModal({ open, title, message, loading, onCancel, onConfirm }: { 
   );
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function AgencyStatsModal({
+  open,
+  onClose,
+  admin,
+  stats,
+  isRTL,
+}: {
+  open: boolean;
+  onClose: () => void;
+  admin: Admin | null;
+  stats: {
+    offersCount: number;
+    bookingsCount: number;
+    totalRevenue: number;
+    activeOffersCount: number;
+    offers: any[];
+    bookings: any[];
+  } | null;
+  isRTL: boolean;
+}) {
+  if (!open || !admin || !stats) return null;
+
+  const currentYear = new Date().getFullYear();
+
+  // Monthly breakdown
+  const monthlyData = (() => {
+    const monthlyMap: Record<number, { revenue: number; bookings: number }> = {};
+    for (let i = 0; i < 12; i++) monthlyMap[i] = { revenue: 0, bookings: 0 };
+
+    stats.bookings.forEach((b: any) => {
+      const dateStr = b.created_at || b.createdAt || b.startDate || b.start_date || b.booking_date;
+      if (!dateStr) return;
+      const d = new Date(dateStr);
+      if (d.getFullYear() !== currentYear) return;
+      const m = d.getMonth();
+      monthlyMap[m].bookings += 1;
+      monthlyMap[m].revenue += Number(b.total_price || b.totalAmount || b.amount || 0);
+    });
+
+    return MONTHS.map((month, i) => ({
+      month,
+      bookings: monthlyMap[i].bookings,
+      revenue: monthlyMap[i].revenue,
+    }));
+  })();
+
+  // Booking status breakdown
+  const statusData = (() => {
+    const counts: Record<string, number> = {};
+    stats.bookings.forEach((b: any) => {
+      const s = String(b.status || 'pending').toLowerCase();
+      counts[s] = (counts[s] || 0) + 1;
+    });
+
+    const colorsMap: Record<string, string> = {
+      confirmed: '#10B981', // emerald
+      pending: '#F59E0B',   // amber
+      completed: '#6366F1', // indigo
+      cancelled: '#EF4444', // rose
+      rejected: '#EF4444',  // rose
+    };
+
+    const statusLabels: Record<string, string> = {
+      confirmed: 'Confirmed',
+      pending: 'Pending',
+      completed: 'Completed',
+      cancelled: 'Cancelled',
+      rejected: 'Rejected',
+    };
+
+    return Object.entries(counts).map(([status, value]) => ({
+      name: statusLabels[status] || status.charAt(0).toUpperCase() + status.slice(1),
+      value,
+      color: colorsMap[status] || '#9CA3AF',
+    }));
+  })();
+
+  // Top 5 Performing Offers
+  const topOffers = (() => {
+    const list = stats.offers.map((offer: any) => {
+      const offerId = normalizeId(extractEntityId(offer, 'id', '_id'));
+      const relatedBookings = stats.bookings.filter((b: any) => {
+        const oid = normalizeId(extractEntityId(b, 'offer_id', 'offerId', 'offer'));
+        return oid === offerId;
+      });
+      const revenue = relatedBookings.reduce((sum: number, b: any) => sum + Number(b.total_price || b.totalAmount || b.amount || 0), 0);
+      return {
+        id: offerId || '',
+        name: offer.name || offer.title || 'Untitled Offer',
+        destination: offer.location || offer.destination || '-',
+        bookingsCount: relatedBookings.length,
+        revenue,
+      };
+    });
+
+    return list.sort((a, b) => b.bookingsCount - a.bookingsCount).slice(0, 5);
+  })();
+
+  const avgBookingValue = stats.bookingsCount > 0 ? Math.round(stats.totalRevenue / stats.bookingsCount) : 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm overflow-y-auto">
+      <div className="absolute inset-0" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="relative bg-white rounded-2xl w-full max-w-4xl shadow-2xl border border-gray-100 flex flex-col max-h-[90vh] overflow-hidden"
+        dir={isRTL ? 'rtl' : 'ltr'}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700 text-lg border border-indigo-200 overflow-hidden">
+              {admin.agency_logo_url ? (
+                <img src={admin.agency_logo_url} alt="logo" className="w-12 h-12 rounded-full object-cover" />
+              ) : (
+                (admin.agency_name?.[0] || admin.firstName?.[0] || '?').toUpperCase()
+              )}
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900">{admin.agency_name || admin.full_name || 'Agency Stats'}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Admin: {admin.full_name || `${admin.firstName || ''} ${admin.lastName || ''}`} • {admin.email}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          {/* KPI Stats Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">Revenue</span>
+                <AttachMoney className="text-emerald-600" />
+              </div>
+              <div className="text-2xl font-bold text-emerald-900">{stats.totalRevenue.toLocaleString()} DZD</div>
+            </div>
+
+            <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-blue-800 uppercase tracking-wider">Bookings</span>
+                <People className="text-blue-600" />
+              </div>
+              <div className="text-2xl font-bold text-blue-900">{stats.bookingsCount}</div>
+            </div>
+
+            <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-100 rounded-2xl flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-purple-800 uppercase tracking-wider">Offers</span>
+                <Inventory2 className="text-purple-600" />
+              </div>
+              <div className="text-2xl font-bold text-purple-900">{stats.offersCount} <span className="text-xs font-normal text-purple-600">(Active: {stats.activeOffersCount})</span></div>
+            </div>
+
+            <div className="p-4 bg-gradient-to-br from-orange-50 to-red-50 border border-orange-100 rounded-2xl flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-orange-800 uppercase tracking-wider">Avg Booking</span>
+                <TrendingUp className="text-orange-600" />
+              </div>
+              <div className="text-2xl font-bold text-orange-900">{avgBookingValue.toLocaleString()} DZD</div>
+            </div>
+          </div>
+
+          {stats.bookingsCount > 0 ? (
+            <>
+              {/* Charts Section */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Booking Status Breakdown */}
+                <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                  <h4 className="text-sm font-bold text-gray-800 mb-4">Booking Status Distribution</h4>
+                  <div className="flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie
+                          data={statusData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={80}
+                          paddingAngle={3}
+                          dataKey="value"
+                        >
+                          {statusData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip />
+                        <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Monthly Revenue Trend */}
+                <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                  <h4 className="text-sm font-bold text-gray-800 mb-4">Monthly Performance ({currentYear})</h4>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <RechartsBarChart data={monthlyData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis dataKey="month" stroke="#6B7280" style={{ fontSize: '11px' }} />
+                      <YAxis stroke="#6B7280" style={{ fontSize: '11px' }} />
+                      <RechartsTooltip />
+                      <Legend iconType="rect" />
+                      <Bar dataKey="revenue" fill="#4F46E5" radius={[4, 4, 0, 0]} name="Revenue (DZD)" />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Top Performing Offers */}
+              <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl">
+                <h4 className="text-sm font-bold text-gray-800 mb-3">Top Performing Offers</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-gray-500 border-b border-gray-200">
+                        <th className="py-2 px-3">Offer Name</th>
+                        <th className="py-2 px-3">Destination</th>
+                        <th className="py-2 px-3 text-center">Bookings</th>
+                        <th className="py-2 px-3 text-right">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {topOffers.map((o) => (
+                        <tr key={o.id} className="hover:bg-white/50 transition-colors">
+                          <td className="py-2.5 px-3 font-medium text-gray-900">{o.name}</td>
+                          <td className="py-2.5 px-3 text-gray-600">{o.destination}</td>
+                          <td className="py-2.5 px-3 text-center font-semibold text-indigo-600">{o.bookingsCount}</td>
+                          <td className="py-2.5 px-3 text-right font-bold text-emerald-600">{o.revenue.toLocaleString()} DZD</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="py-12 border border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-center bg-gray-50/50">
+              <svg className="w-12 h-12 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <h5 className="font-semibold text-gray-700 text-sm">No Bookings Registered</h5>
+              <p className="text-xs text-gray-500 mt-1 max-w-sm">
+                This agency does not have any booking data recorded yet. Stats will update automatically when bookings are placed.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end bg-gray-50/30">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors">
+            Close
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 export function AdminManagement() {
   const { t, isRTL } = useLanguage();
   const [activeTab, setActiveTab] = useState<'agencies' | 'offers'>('agencies');
@@ -111,6 +401,15 @@ export function AdminManagement() {
   // Offers
   const [offers, setOffers] = useState<Offer[]>([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
+
+  // Stats background data
+  const [allOffers, setAllOffers] = useState<any[]>([]);
+  const [allBookings, setAllBookings] = useState<any[]>([]);
+  const [isLoadingStatsData, setIsLoadingStatsData] = useState(false);
+
+  // Agency stats modal
+  const [selectedStatsAdmin, setSelectedStatsAdmin] = useState<Admin | null>(null);
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
 
   // Search & pagination
   const [searchQuery, setSearchQuery] = useState('');
@@ -146,6 +445,24 @@ export function AdminManagement() {
     return { totalAgencies, activeAgencies, inactiveAgencies, totalOffers };
   }, [admins, offers]);
 
+  const fetchAllOffersAndBookings = useCallback(async () => {
+    setIsLoadingStatsData(true);
+    try {
+      const [offersData, bookingsData] = await Promise.all([
+        offerService.getAllOffers(),
+        bookingService.getAllBookings(),
+      ]);
+      const offersList = Array.isArray(offersData) ? offersData : offersData?.offers || offersData?.data?.offers || [];
+      const bookingsList = Array.isArray(bookingsData) ? bookingsData : bookingsData?.bookings || bookingsData?.data || [];
+      setAllOffers(offersList);
+      setAllBookings(bookingsList);
+    } catch (err) {
+      console.error('Failed to fetch offers or bookings for stats', err);
+    } finally {
+      setIsLoadingStatsData(false);
+    }
+  }, []);
+
   const fetchAdmins = useCallback(async () => {
     setIsLoadingAdmins(true);
     setGlobalError(null);
@@ -154,6 +471,7 @@ export function AdminManagement() {
       const adminsList = data?.admins || data?.data?.admins || data?.users || data?.data?.users || data?.data || data || [];
       const list = Array.isArray(adminsList) ? adminsList : adminsList ? [adminsList] : [];
       setAdmins(list as Admin[]);
+      fetchAllOffersAndBookings();
     } catch (err: any) {
       const status = err?.response?.status;
       if (status === 403) setGlobalError('You do not have permission to view agency admins.');
@@ -161,7 +479,7 @@ export function AdminManagement() {
     } finally {
       setIsLoadingAdmins(false);
     }
-  }, []);
+  }, [fetchAllOffersAndBookings]);
 
   const fetchOffers = useCallback(async () => {
     setIsLoadingOffers(true);
@@ -181,6 +499,92 @@ export function AdminManagement() {
     if (activeTab === 'agencies') fetchAdmins();
     else fetchOffers();
   }, [activeTab, fetchAdmins, fetchOffers]);
+
+  const getAgencyStats = useCallback((admin: Admin) => {
+    const adminId = admin._id || admin.id || '';
+    const adminEmail = (admin.email || '').trim().toLowerCase();
+    const agencyName = (admin.agency_name || '').trim().toLowerCase();
+    const adminFullName = (admin.full_name || admin.name || `${admin.firstName || ''} ${admin.lastName || ''}`.trim()).toLowerCase();
+
+    // Direct match offers to this agency admin
+    const agencyOffers = allOffers.filter((offer: any) => {
+      // Match by owner/creator/admin IDs
+      const ownerIds = [
+        offer.user_id, offer.userId, offer.admin_id, offer.adminId,
+        offer.owner_id, offer.ownerId,
+        offer.user?.id, offer.user?._id,
+        offer.admin?.id, offer.admin?._id,
+        offer.agency?.id, offer.agency?._id,
+        offer.agency?.user_id, offer.agency?.userId,
+        offer.creator?.id, offer.creator?._id,
+        offer.creator?.user_id, offer.creator?.userId,
+      ].filter(Boolean).map(String);
+
+      if (adminId && ownerIds.includes(adminId)) return true;
+
+      // Match by email
+      const ownerEmails = [
+        offer.email, offer.user?.email, offer.admin?.email,
+        offer.creator?.email, offer.agency?.email,
+      ].filter(Boolean).map((e: string) => e.trim().toLowerCase());
+
+      if (adminEmail && ownerEmails.includes(adminEmail)) return true;
+
+      // Match by agency name
+      if (agencyName) {
+        const offerAgencyNames = [
+          offer.agency_name, offer.agencyName,
+          offer.agency?.name, offer.agency?.agency_name,
+          offer.creator?.agency_name, offer.creator?.agencyName,
+          offer.creator?.name,
+        ].filter(Boolean).map((n: string) => n.trim().toLowerCase());
+
+        if (offerAgencyNames.includes(agencyName)) return true;
+      }
+
+      // Match by creator full name as last resort
+      if (adminFullName) {
+        const creatorNames = [
+          offer.creator?.name,
+          offer.creator?.full_name,
+          offer.agency?.name,
+        ].filter(Boolean).map((n: string) => n.trim().toLowerCase());
+
+        if (creatorNames.includes(adminFullName)) return true;
+      }
+
+      return false;
+    });
+
+    // Collect this agency's offer IDs
+    const agencyOfferIds = new Set<string>(
+      agencyOffers.map((o: any) => String(o.id || o._id || '')).filter(Boolean)
+    );
+
+    // Match bookings whose offer belongs to this agency
+    const agencyBookings = allBookings.filter((b: any) => {
+      const offerId = String(
+        b.offer_id || b.offerId ||
+        (typeof b.offer === 'object' && b.offer ? (b.offer.id || b.offer._id) : b.offer) || ''
+      );
+      return offerId && agencyOfferIds.has(offerId);
+    });
+
+    const totalRevenue = agencyBookings.reduce((acc: number, b: any) => {
+      return acc + Number(b.total_price || b.totalAmount || b.amount || 0);
+    }, 0);
+
+    const activeOffersCount = agencyOffers.filter((o: any) => o.available === true || o.status === 'active').length;
+
+    return {
+      offersCount: agencyOffers.length,
+      bookingsCount: agencyBookings.length,
+      totalRevenue,
+      activeOffersCount,
+      offers: agencyOffers,
+      bookings: agencyBookings,
+    };
+  }, [allOffers, allBookings]);
 
   // Input handling with simple realtime validation
   const validateForm = useCallback((data = formData) => {
@@ -421,13 +825,14 @@ export function AdminManagement() {
                         <th className="py-3 px-4">Agency / Organization</th>
                         <th className="py-3 px-4">{t.common.email}</th>
                         <th className="py-3 px-4">{t.common.status}</th>
+                        <th className="py-3 px-4">Stats</th>
                         <th className="py-3 px-4 text-right">{t.common.actions}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {pagedAdmins.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="py-10">
+                          <td colSpan={6} className="py-10">
                             <EmptyState title={t.admins.noAdmins || 'No agency admins yet'} subtitle={t.admins.createFirstAdmin || ''} action={<button type="button" onClick={() => setFormOpen(true)} className="mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">{t.admins.createAdmin}</button>} />
                           </td>
                         </tr>
@@ -435,6 +840,7 @@ export function AdminManagement() {
                         pagedAdmins.map((admin) => {
                           const id = admin._id || admin.id || '';
                           const inactive = admin.status === 'deactivated';
+                          const agStats = getAgencyStats(admin);
                           return (
                             <tr key={id} className={`hover:bg-gray-50 transition-colors ${inactive ? 'bg-rose-50' : ''}`}>
                               <td className="py-3 px-4">
@@ -460,8 +866,23 @@ export function AdminManagement() {
                                   {inactive ? t.common.inactive : t.common.active}
                                 </span>
                               </td>
+                              <td className="py-3 px-4">
+                                {isLoadingStatsData ? (
+                                  <SkeletonLine className="w-20" />
+                                ) : (
+                                  <div className="flex flex-col text-xs gap-0.5 text-gray-600">
+                                    <div className="font-semibold text-gray-950">{agStats.totalRevenue.toLocaleString()} DZD</div>
+                                    <div className="text-[11px] text-gray-500">
+                                      {agStats.bookingsCount} booking{agStats.bookingsCount !== 1 ? 's' : ''} • {agStats.offersCount} offer{agStats.offersCount !== 1 ? 's' : ''}
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
                               <td className="py-3 px-4 text-right">
                                 <div className="inline-flex items-center gap-2">
+                                  <button onClick={() => { setSelectedStatsAdmin(admin); setIsStatsModalOpen(true); }} className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50" title="View Agency Performance">
+                                    <BarChartIcon />
+                                  </button>
                                   <button className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50">
                                     <Edit />
                                   </button>
@@ -486,6 +907,7 @@ export function AdminManagement() {
                     filteredAdmins.map((admin) => {
                       const id = admin._id || admin.id || '';
                       const inactive = admin.status === 'deactivated';
+                      const agStats = getAgencyStats(admin);
                       return (
                         <div key={id} className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
                           <div className="flex items-center justify-between">
@@ -501,11 +923,19 @@ export function AdminManagement() {
                                 <div className="font-medium text-gray-900">{getAdminName(admin)}</div>
                                 <div className="text-sm text-gray-500">{getAdminName(admin)}</div>
                                 <div className="text-xs text-gray-500">{admin.email}</div>
+                                {!isLoadingStatsData && (
+                                  <div className="text-xs text-indigo-600 font-semibold mt-1">
+                                    {agStats.totalRevenue.toLocaleString()} DZD • {agStats.bookingsCount} b • {agStats.offersCount} o
+                                  </div>
+                                )}
                               </div>
                             </div>
                             <div className="flex flex-col items-end gap-2">
                               <div className={`text-xs font-semibold px-3 py-1 rounded-full ${inactive ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>{inactive ? t.common.inactive : t.common.active}</div>
                               <div className="flex items-center gap-2">
+                                <button onClick={() => { setSelectedStatsAdmin(admin); setIsStatsModalOpen(true); }} className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50" title="View Agency Performance">
+                                  <BarChartIcon />
+                                </button>
                                 <button className="p-2 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50">
                                   <Edit />
                                 </button>
@@ -698,6 +1128,17 @@ export function AdminManagement() {
       )}
 
       <ConfirmModal open={confirmOpen} title={`Confirm delete`} message={`Are you sure you want to delete ${confirmContext?.name || 'this item'}?`} loading={isDeleting} onCancel={handleConfirmCancel} onConfirm={handleConfirm} />
+
+      <AgencyStatsModal
+        open={isStatsModalOpen}
+        onClose={() => {
+          setIsStatsModalOpen(false);
+          setSelectedStatsAdmin(null);
+        }}
+        admin={selectedStatsAdmin}
+        stats={selectedStatsAdmin ? getAgencyStats(selectedStatsAdmin) : null}
+        isRTL={isRTL}
+      />
     </div>
   );
 }
